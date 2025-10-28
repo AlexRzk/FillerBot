@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.hardhat_node
+artifacts
+cache
+coverage
+*.log
