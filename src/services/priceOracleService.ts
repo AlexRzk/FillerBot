@@ -8,7 +8,7 @@
 import { ethers } from 'ethers';
 import { getMultipleTokenPrices } from '../utils/priceOracle.js';
 import { updatePriceCache } from '../planner/planner.js';
-import { TOKEN_ADDRESSES_OPTIMISM } from '../config/safety.js';
+import { TOKEN_ADDRESSES_BASE } from '../config/safety.js';
 import logger from '../logger.js';
 
 export class PriceOracleService {
@@ -67,7 +67,7 @@ export class PriceOracleService {
     try {
       logger.debug('[price-oracle] Fetching token prices from Chainlink...');
 
-      const tokenAddresses = Object.values(TOKEN_ADDRESSES_OPTIMISM);
+      const tokenAddresses = Object.values(TOKEN_ADDRESSES_BASE);
       const prices = await getMultipleTokenPrices(tokenAddresses, this.provider);
 
       if (prices.size === 0) {
@@ -116,11 +116,10 @@ export class PriceOracleService {
     const addr = address.toLowerCase();
     const mapping: Record<string, string> = {
       '0x4200000000000000000000000000000000000006': 'WETH',
-      '0x0b2c639c533813f4aa9d7837caf62653d097ff85': 'USDC',
-      '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58': 'USDT',
-      '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1': 'DAI',
-      '0x4200000000000000000000000000000000000042': 'OP',
-      '0x68f180fcce6836688e9084f035309e29bf0a2095': 'WBTC',
+      '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'USDC',
+      '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': 'USDbC',
+      '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'DAI',
+      '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf': 'cbBTC',
     };
     return mapping[addr] || addr.slice(0, 10);
   }

@@ -44,50 +44,48 @@ export const SAFETY_CONFIG = {
 };
 
 /**
- * Chainlink Price Feed Addresses on Optimism Mainnet
- * Source: https://docs.chain.link/data-feeds/price-feeds/addresses?network=optimism
+ * Chainlink Price Feed Addresses on Base Mainnet
+ * Source: https://docs.chain.link/data-feeds/price-feeds/addresses?network=base
  */
-export const CHAINLINK_FEEDS_OPTIMISM = {
-  // ETH/USD - Optimism mainnet
-  'ETH/USD': '0x13e3Ee699D1909E989722E753853AE30b17e08c5',
+export const CHAINLINK_FEEDS_BASE = {
+  // ETH/USD - Base mainnet
+  'ETH/USD': '0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70',
   
   // Wrapped tokens (use same feed as base token)
-  'WETH/USD': '0x13e3Ee699D1909E989722E753853AE30b17e08c5',
+  'WETH/USD': '0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70',
   
   // Stablecoins
-  'USDC/USD': '0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3',
-  'USDT/USD': '0xECef79E109e997bCA29c1c0897ec9d7b03647F5E',
-  'DAI/USD': '0x8dBa75e83DA73cc766A7e5a0ee71F656BAb470d6',
+  'USDC/USD': '0x7e860098F58bBFC8648a4311b374B1D669a2bc6B',
+  'USDbC/USD': '0x7e860098F58bBFC8648a4311b374B1D669a2bc6B', // Bridged USDC uses same feed
+  'DAI/USD': '0x591e79239a7d679378eC8c847e5038150364C78F',
   
-  // Other tokens
-  'OP/USD': '0x0D276FC14719f9292D5C1eA2198673d1f4269246',
-  'WBTC/USD': '0x718A5788b89454aAE3A028AE9c111A29Be6c2a6F',
+  // Bitcoin
+  'cbBTC/USD': '0x07DA0E54543a844a80ABE69c8A12F22B3aA59f9D', // Coinbase Wrapped BTC
 };
 
 /**
- * Token addresses on Optimism mainnet
+ * Token addresses on Base mainnet
  */
-export const TOKEN_ADDRESSES_OPTIMISM: Record<string, string> = {
+export const TOKEN_ADDRESSES_BASE: Record<string, string> = {
   WETH: '0x4200000000000000000000000000000000000006',
-  USDC: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  USDT: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
-  DAI: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1',
-  OP: '0x4200000000000000000000000000000000000042',
-  WBTC: '0x68f180fcCe6836688e9084f035309E29Bf0A2095',
+  USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  USDbC: '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA', // Bridged USDC
+  DAI: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
+  cbBTC: '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', // Coinbase Wrapped BTC
 };
 
 /**
- * Get Chainlink feed address for a token pair
+ * Get Chainlink feed address for a token pair on Base
  */
 export function getChainlinkFeed(tokenAddress: string): string | null {
-  const token = Object.entries(TOKEN_ADDRESSES_OPTIMISM).find(
+  const token = Object.entries(TOKEN_ADDRESSES_BASE).find(
     ([_, addr]) => addr.toLowerCase() === tokenAddress.toLowerCase()
   );
   
   if (!token) return null;
   
-  const feedKey = `${token[0]}/USD` as keyof typeof CHAINLINK_FEEDS_OPTIMISM;
-  return CHAINLINK_FEEDS_OPTIMISM[feedKey] || null;
+  const feedKey = `${token[0]}/USD` as keyof typeof CHAINLINK_FEEDS_BASE;
+  return CHAINLINK_FEEDS_BASE[feedKey] || null;
 }
 
 /**

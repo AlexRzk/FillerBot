@@ -1,15 +1,15 @@
 /**
- * UniswapX Intent Feed for Optimism Mainnet
+ * UniswapX Intent Feed for Base Mainnet
  * 
  * UniswapX is Uniswap's cross-chain intent protocol using Dutch auctions.
- * This module fetches pending UniswapX orders on Optimism.
+ * This module fetches pending UniswapX orders on Base.
  * 
  * Key concepts:
  * - Dutch auction: price improves over time until filled
  * - Exclusive filler: some orders have exclusive windows
  * - Multiple reactors: V1, V2, priority orders
  * 
- * Optimism deployment:
+ * Base deployment:
  * - Reactor contract: monitors for Open orders
  * - API endpoint (if available): query pending orders
  * - Event logs: OrderOpen events from reactor
@@ -18,12 +18,15 @@
 import { ethers } from 'ethers';
 import { Intent } from '../models/intent.js';
 
-// UniswapX Reactor addresses on Optimism
-// Source: https://docs.uniswap.org/contracts/uniswapx/deployments
-// V2 Reactor (DutchOrder): Primary reactor for Dutch auctions
-const UNISWAPX_V2_REACTOR_OPTIMISM = '0x6000da47483062A0D734Ba3dc7576Ce6A0B645C4';
-// Exclusive Dutch Order Reactor: For orders with exclusivity periods
-const UNISWAPX_EXCLUSIVE_REACTOR_OPTIMISM = '0x0000000000000000000000000000000000000000'; // TODO: Add if deployed
+// UniswapX Reactor addresses on Base
+// Source: https://docs.uniswap.org/contracts/uniswapx/fillers/priority/priorityorderreactor
+// Base uses Priority Order Reactor (PGA - Priority Gas Auction)
+// NOT the V2 Dutch Auction reactor!
+// NOTE: Now deprecated in favor of pendingOrdersListener.ts for real-time pending orders
+// const UNISWAPX_PRIORITY_REACTOR_BASE = '0x000000001Ec5656dcdB24D90DFa42742738De729';
+
+// For comparison: V2 reactor exists but is NOT used on Base
+// const UNISWAPX_V2_REACTOR_BASE = '0x6000da47483062A0D734Ba3dc7576Ce6A0B645C4';
 
 // UniswapX order API - may use Uniswap Labs API or need direct event monitoring
 // Note: Public API may not be available; might need to use The Graph or direct RPC
@@ -56,18 +59,18 @@ interface UniswapXOrder {
 }
 
 /**
- * Fetch pending UniswapX orders from Optimism mainnet
+ * Fetch pending UniswapX orders from Base mainnet
  * 
  * Strategies (in priority order):
- * 1. UniswapX API (if available for Optimism)
- * 2. The Graph subgraph for UniswapX on OP
+ * 1. UniswapX API (if available for Base)
+ * 2. The Graph subgraph for UniswapX on Base
  * 3. Direct RPC: query OrderOpen events from reactor contract
  * 
- * @param provider ethers provider connected to OP mainnet
+ * @param provider ethers provider connected to Base mainnet
  * @returns Array of Intent objects parsed from UniswapX orders
  */
 export async function fetchUniswapXOrders(provider: ethers.Provider): Promise<Intent[]> {
-  console.log('[info] Fetching UniswapX orders from Optimism mainnet...');
+  console.log('[info] Fetching UniswapX orders from Base mainnet...');
 
   try {
     // Strategy 1: Try API endpoint (if exists for Optimism)
@@ -91,7 +94,7 @@ export async function fetchUniswapXOrders(provider: ethers.Provider): Promise<In
       return eventOrders;
     }
 
-    console.log('[warn] No UniswapX orders found on Optimism mainnet');
+    console.log('[warn] No UniswapX orders found on Base mainnet');
     return [];
 
   } catch (error: any) {
@@ -103,13 +106,13 @@ export async function fetchUniswapXOrders(provider: ethers.Provider): Promise<In
 /**
  * Strategy 1: Fetch from UniswapX API
  * 
- * NOTE: UniswapX API may not have public endpoints yet.
- * Check https://docs.uniswap.org/contracts/uniswapx for API docs.
+ * Base uses Priority Order Reactor with PGA (Priority Gas Auctions)
+ * API: GET https://api.uniswap.org/v2/orders?orderStatus=open&orderType=Priority&chainId=8453
  */
 async function fetchFromUniswapXAPI(): Promise<Intent[]> {
   try {
-    // Check if API supports Optimism chain
-    const endpoint = `${UNISWAPX_API_BASE}/orders?chainId=10&status=open`;
+    // Base uses Priority orders, not Dutch auction
+    const endpoint = `${UNISWAPX_API_BASE}/orders?chainId=8453&orderStatus=open&orderType=Priority`;
     
     const response = await fetch(endpoint, {
       method: 'GET',
@@ -122,7 +125,7 @@ async function fetchFromUniswapXAPI(): Promise<Intent[]> {
 
     if (!response.ok) {
       if (response.status === 404) {
-        console.log('[info] UniswapX API not available or no Optimism support');
+        console.log('[info] UniswapX API not available for Base Priority orders');
         return [];
       }
       console.warn(`[warn] UniswapX API returned status ${response.status}`);
@@ -225,33 +228,17 @@ async function fetchFromUniswapXSubgraph(): Promise<Intent[]> {
 /**
  * Strategy 3: Query reactor contract events directly
  * 
- * Listen to OrderOpen events from the UniswapX reactor contract.
- * This is the most reliable but requires parsing contract events.
+ * DEPRECATED: This now only fetches historical FILLED orders (too late to fill).
+ * Use pendingOrdersListener.ts instead to get PENDING/UNFILLED orders.
+ * 
+ * Listen to Fill events from the UniswapX Priority Order Reactor.
+ * Note: These are COMPLETED orders only (after they're filled by someone else).
  */
-async function fetchFromReactorEvents(provider: ethers.Provider): Promise<Intent[]> {
+async function fetchFromReactorEvents(_provider: ethers.Provider): Promise<Intent[]> {
   try {
-    // Use the configured reactor address
-    console.log(`[info] Querying UniswapX V2 Reactor on Optimism: ${UNISWAPX_V2_REACTOR_OPTIMISM}`);
-
-    // OrderOpen event signature (example - verify actual ABI)
-    const orderOpenTopic = ethers.id('OrderOpen(bytes32,address,uint256)');
-
-    const latestBlock = await provider.getBlockNumber();
-    const fromBlock = latestBlock - 100; // Look back 100 blocks (~3 minutes on OP)
-
-    const logs = await provider.getLogs({
-      address: UNISWAPX_V2_REACTOR_OPTIMISM,
-      topics: [orderOpenTopic],
-      fromBlock,
-      toBlock: 'latest',
-    });
-
-    console.log(`[info] Found ${logs.length} OrderOpen events in last 100 blocks`);
-
-    // Parse logs into intents
-    // TODO: Implement event parsing based on actual reactor ABI
+    // DEPRECATED: This only shows past filled orders
+    // Use pendingOrdersListener.ts for real-time PENDING orders instead
     return [];
-
   } catch (error: any) {
     console.log('[info] UniswapX event query failed:', error.message);
     return [];
