@@ -1,27 +1,22 @@
 /**
  * src/listener/pendingOrdersListener.ts
  * PURPOSE: Main entry point for listening to PENDING/UNFILLED orders from UniswapX Priority Reactor.
- * 
- * ⚠️ CRITICAL FIX APPLIED: Listening for the CORRECT event sources!
- * 
- * Previous Bug (FIXED):
+ * * ⚠️ CRITICAL FIX APPLIED: Listening for the CORRECT event sources!
+ * * Previous Bug (FIXED):
  * - Code was listening for non-existent OrderPlaced(bytes32,address) event
  * - Result: 0 historical events, 0 new orders detected
- * 
- * Solution (IMPLEMENTED):
+ * * Solution (IMPLEMENTED):
  * - Use mempoolOrderListener.ts to monitor ACTUAL transactions to the reactor
  * - Decode transaction calldata to extract order details
  * - Keep Fill event listening as a cleanup mechanism
- * 
- * UniswapX Priority Order Reactor on Base:
+ * * UniswapX Priority Order Reactor on Base:
  * - Contract: 0x000000001Ec5656dcdB24D90DFa42742738De729
  * - Events that ACTUALLY exist:
- *   - Fill(bytes32 indexed orderHash, address indexed filler, address indexed swapper, uint256 nonce)
- *   - OwnershipTransferred(address indexed user, address indexed newOwner)
- *   - ProtocolFeeControllerSet(address oldFeeController, address newFeeController)
+ * - Fill(bytes32 indexed orderHash, address indexed filler, address indexed swapper, uint256 nonce)
+ * - OwnershipTransferred(address indexed user, address indexed newOwner)
+ * - ProtocolFeeControllerSet(address oldFeeController, address newFeeController)
  * - Event that DOES NOT exist: OrderPlaced ❌
- * 
- * Architecture:
+ * * Architecture:
  * 1. Mempool listener: Detects new pending orders before execution
  * 2. Fill event listener: Tracks order completion and cleans up pending list
  * 3. Provides consolidated view of pending orders for matching
@@ -29,6 +24,7 @@
 
 import { ethers } from 'ethers';
 import { Intent } from '../models/intent';
+// We need the utility function to get token decimals for correct formatting
 import { getTokenDecimals } from '../utils/priceOracle';
 import {
   startMempoolOrderListener,
@@ -56,16 +52,13 @@ const state: ListenerState = {
 
 /**
  * Start listening to pending orders from UniswapX Priority Reactor.
- * 
- * This function:
+ * * This function:
  * 1. Starts mempool monitoring (monitors pending transactions to reactor)
  * 2. Subscribes to Fill events to track order completion and cleanup
  * 3. Maintains consolidated view of pending orders
- * 
- * IMPORTANT: Requires a WebSocket RPC URL for mempool monitoring!
+ * * IMPORTANT: Requires a WebSocket RPC URL for mempool monitoring!
  * HTTP RPC won't work for listening to pending transactions.
- * 
- * @param provider HTTP provider connected to Base mainnet
+ * * @param provider HTTP provider connected to Base mainnet
  * @param wsRpcUrl WebSocket RPC URL for mempool monitoring (e.g., wss://base-mainnet.publicnode.com)
  * @param onNewOrder Callback when a new pending order is detected
  * @returns Stop function to halt the listener
@@ -143,13 +136,11 @@ export function stopPendingOrdersListener(): void {
 
 /**
  * Subscribe to Fill events to track when orders are completed on-chain.
- * 
- * When an order is filled:
+ * * When an order is filled:
  * 1. We log the fill event
  * 2. We remove it from pending mempool list
  * 3. This helps us track successful fills
- * 
- * @param provider Ethers provider connected to Base
+ * * @param provider Ethers provider connected to Base
  * @returns Unsubscribe function
  */
 function subscribeToFillEvents(provider: ethers.Provider): () => void {
@@ -192,10 +183,12 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
             const rawFillerTopic = log.topics[2];
             const rawSwapperTopic = log.topics[3];
 
+            // --- FIX ---
             // Extract actual 20-byte addresses from the 32-byte padded topics
             // Addresses are stored in the last 40 hex characters of the 32-byte topic
             const fillerAddress = ethers.getAddress(`0x${rawFillerTopic.slice(-40)}`);
             const swapperAddress = ethers.getAddress(`0x${rawSwapperTopic.slice(-40)}`);
+            // --- END FIX ---
 
             // Remove from pending mempool orders if present
             const removedOrder = removePendingMempoolOrder(orderHash);
@@ -203,18 +196,23 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
             console.log(
               `[info] ✅ Order filled on-chain: ${orderHash.slice(0, 10)}...`
             );
+            // --- FIX ---
+            // Log the correctly formatted addresses
             console.log(
               `[info]    Filler: ${fillerAddress}`
             );
             console.log(
               `[info]    Swapper: ${swapperAddress}`
             );
+            // --- END FIX ---
             
             // If we had this order in our mempool tracking, log the amounts
             if (removedOrder) {
               const decoded = removedOrder.decodedOrder;
               
               // Get token decimals for proper formatting
+              // Note: This relies on a synchronous decimal-getter, 
+              // which you have in 'src/utils/priceOracle.ts'
               const inputDecimals = getTokenDecimals(decoded.inputToken);
               const outputDecimals = getTokenDecimals(decoded.outputToken);
               
@@ -228,23 +226,24 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
                 `[info]    Output: ${outputAmount} (${decoded.outputToken.slice(0, 10)}...)`
               );
               
-              // Calculate potential gain estimate (simple: output - input)
-              // Note: This is a simplification - real gains need to account for token prices and decimals
+              // Simple PnL calculation needs context (token prices/decimals)
+              // We'll just show the raw token difference
               const rawGain = decoded.outputAmount - decoded.inputAmount;
               if (rawGain > 0n) {
-                const gainAmount = ethers.formatUnits(rawGain, Math.min(inputDecimals, outputDecimals));
+                // Formatting gain is tricky without knowing which token's decimals to use
+                // We'll just log a positive indicator
                 console.log(
-                  `[info]    💰 Potential gain: +${gainAmount}`
+                  `[info]    💰 Potential gain (raw): ${rawGain.toString()}`
                 );
               } else if (rawGain < 0n) {
-                const lossAmount = ethers.formatUnits(-rawGain, Math.min(inputDecimals, outputDecimals));
                 console.log(
-                  `[info]    📉 Potential loss: -${lossAmount}`
+                  `[info]    📉 Potential loss (raw): ${rawGain.toString()}`
                 );
               }
             }
-          } catch (e) {
-            // Skip malformed logs
+          } catch (e: any) {
+             console.warn(`[warn] Error processing Fill event log: ${e.message}`);
+             // Skip malformed logs
           }
         });
 
@@ -264,10 +263,8 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
 
 /**
  * Get pending orders as Intent array for the matcher.
- * 
- * These are orders detected from mempool that are still pending.
- * 
- * @returns Array of pending orders as Intent objects
+ * * These are orders detected from mempool that are still pending.
+ * * @returns Array of pending orders as Intent objects
  */
 export function getOpenOrdersAsIntents(): Intent[] {
   return getPendingMempoolOrdersAsIntents();
