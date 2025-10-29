@@ -9,7 +9,7 @@
  * This protects against losing money in production.
  */
 
-import { SAFETY_CONFIG, CircuitBreakerState } from '../config/safety.js';
+import { SAFETY_CONFIG, CircuitBreakerState } from '../config/safety';
 
 interface TradeRecord {
   timestamp: number;

@@ -9,7 +9,7 @@
 import { Intent } from '../models/intent';
 import { Candidate } from '../matcher/matcher';
 import logger from '../logger';
-import { getTokenDecimals as getOracleDecimals } from '../utils/priceOracle.js';
+import { getTokenDecimals as getOracleDecimals } from '../utils/priceOracle';
 
 /**
  * Token decimal mapping for Optimism mainnet (fallback).

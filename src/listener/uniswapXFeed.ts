@@ -16,7 +16,7 @@
  */
 
 import { ethers } from 'ethers';
-import { Intent } from '../models/intent.js';
+import { Intent } from '../models/intent';
 
 // UniswapX Reactor addresses on Base
 // Source: https://docs.uniswap.org/contracts/uniswapx/fillers/priority/priorityorderreactor

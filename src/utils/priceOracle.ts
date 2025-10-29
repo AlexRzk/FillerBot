@@ -6,7 +6,7 @@
  */
 
 import { ethers } from 'ethers';
-import { SAFETY_CONFIG, getChainlinkFeed } from '../config/safety.js';
+import { SAFETY_CONFIG, getChainlinkFeed } from '../config/safety';
 
 // Chainlink Aggregator ABI (minimal interface)
 const CHAINLINK_AGGREGATOR_ABI = [

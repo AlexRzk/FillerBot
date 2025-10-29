@@ -21,10 +21,10 @@ import { getGasPrice, getProvider } from '../eth/provider';
 import { formatAmount } from '../utils/eth';
 import { config } from '../config';
 import logger from '../logger';
-import { PriceOracleService } from '../services/priceOracleService.js';
-import { validateTrade, simulateTrade, logRejectedTrade } from '../utils/tradeValidator.js';
-import { circuitBreaker } from '../utils/circuitBreaker.js';
-import { SAFETY_CONFIG } from '../config/safety.js';
+import { PriceOracleService } from '../services/priceOracleService';
+import { validateTrade, simulateTrade, logRejectedTrade } from '../utils/tradeValidator';
+import { circuitBreaker } from '../utils/circuitBreaker';
+import { SAFETY_CONFIG } from '../config/safety';
 
 /**
  * Monitor state.
@@ -117,6 +117,8 @@ export async function startMonitor(
         return;
       }
 
+      logger.info(`📊 Cycle #${state.cycleCount}: Analyzing ${pendingIntents.length} pending intents`);
+
       // Step 2: Find candidate pairs
       const candidates = findCandidates(pendingIntents);
       logger.debug(`Found ${candidates.length} candidate pairs`);
@@ -126,6 +128,8 @@ export async function startMonitor(
         setTimeout(loop, config.monitorIntervalMs);
         return;
       }
+
+      logger.info(`✅ Found ${candidates.length} candidate pairs for matching`);
 
       // Step 3: Build plans from top candidates
       const plans = candidates.slice(0, 5).map((candidate) =>
@@ -146,6 +150,16 @@ export async function startMonitor(
       // Step 5: Simulate and rank plans
       const simulatedPlans = await simulateAndRankPlans(validPlans, settlementAddress);
       logger.debug(`Simulated ${simulatedPlans.length} plans`);
+      
+      // Log details on top simulated plans
+      if (simulatedPlans.length > 0) {
+        const topPlan = simulatedPlans[0];
+        const profitEth = Number(topPlan.result.expectedProfit) / 1e18;
+        logger.info(`💰 Top plan profit: ${profitEth.toFixed(8)} ETH`);
+        logger.debug(
+          `   Pair: ${topPlan.plan.intentA.id.slice(0, 8)}... <-> ${topPlan.plan.intentB.id.slice(0, 8)}...`
+        );
+      }
 
       // Step 6: Get gas price and filter profitable plans
       const gasPrice = await getGasPrice();

@@ -14,11 +14,35 @@
 import { Intent } from '../models/intent';
 import logger from '../logger';
 import { ethers } from 'ethers';
-import { startPendingOrdersListener, getOpenOrdersAsIntents, stopPendingOrdersListener } from './pendingOrdersListener.js';
+import { config } from '../config';
+import { startPendingOrdersListener, getOpenOrdersAsIntents, stopPendingOrdersListener } from './pendingOrdersListener';
 
 // Configuration for Base mainnet RPC endpoints
-const BASE_MAINNET_RPC = 'https://mainnet.base.org';
-const BASE_MAINNET_WS = 'wss://base-mainnet.publicnode.com'; // Public WebSocket for mempool monitoring
+// Use HTTP for regular calls, WebSocket for mempool monitoring
+const BASE_MAINNET_RPC = config.rpcUrl;
+
+// Convert HTTP RPC to WebSocket URL
+// Example: https://base-mainnet.g.alchemy.com/v2/KEY -> wss://base-mainnet.g.alchemy.com/v2/KEY
+function getWebSocketUrl(httpRpcUrl: string): string {
+  try {
+    const url = new URL(httpRpcUrl);
+    // Replace https with wss
+    url.protocol = 'wss:';
+    return url.toString();
+  } catch {
+    // Fallback to a known WebSocket endpoint if conversion fails
+    logger.warn(`[Feed] Could not convert HTTP RPC to WebSocket: ${httpRpcUrl}`);
+    // Use Alchemy's direct WebSocket if possible (extract the key from HTTP URL)
+    const match = httpRpcUrl.match(/alchemy\.com\/v2\/([a-zA-Z0-9-]+)/);
+    if (match && match[1]) {
+      return `wss://base-mainnet.g.alchemy.com/v2/${match[1]}`;
+    }
+    // Final fallback to public endpoint
+    return 'wss://base-mainnet.publicnode.com';
+  }
+}
+
+const BASE_MAINNET_WS = getWebSocketUrl(BASE_MAINNET_RPC);
 
 /**
  * Main function to fetch real intents from Base mainnet.

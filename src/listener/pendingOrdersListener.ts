@@ -28,13 +28,13 @@
  */
 
 import { ethers } from 'ethers';
-import { Intent } from '../models/intent.js';
+import { Intent } from '../models/intent';
 import {
   startMempoolOrderListener,
   stopMempoolOrderListener,
   getPendingMempoolOrdersAsIntents,
   removePendingMempoolOrder,
-} from './mempoolOrderListener.js';
+} from './mempoolOrderListener';
 
 const UNISWAPX_PRIORITY_REACTOR_BASE = '0x000000001Ec5656dcdB24D90DFa42742738De729';
 
@@ -188,13 +188,46 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
         logs.forEach((log) => {
           try {
             const orderHash = log.topics[1];
+            const filler = log.topics[2];
+            const swapper = log.topics[3];
 
             // Remove from pending mempool orders if present
-            removePendingMempoolOrder(orderHash);
+            const removedOrder = removePendingMempoolOrder(orderHash);
 
             console.log(
               `[info] ✅ Order filled on-chain: ${orderHash.slice(0, 10)}...`
             );
+            console.log(
+              `[info]    Filler: ${filler.slice(0, 10)}...`
+            );
+            console.log(
+              `[info]    Swapper: ${swapper.slice(0, 10)}...`
+            );
+            
+            // If we had this order in our mempool tracking, log the amounts
+            if (removedOrder) {
+              const decoded = removedOrder.decodedOrder;
+              console.log(
+                `[info]    Input: ${(decoded.inputAmount / BigInt(10 ** 18)).toString()} (${decoded.inputToken.slice(0, 10)}...)`
+              );
+              console.log(
+                `[info]    Output: ${(decoded.outputAmount / BigInt(10 ** 18)).toString()} (${decoded.outputToken.slice(0, 10)}...)`
+              );
+              
+              // Calculate potential gain estimate (simple: output - input)
+              const rawGain = decoded.outputAmount - decoded.inputAmount;
+              if (rawGain > 0n) {
+                const gainAmount = Number(rawGain) / 1e18;
+                console.log(
+                  `[info]    💰 Potential gain: ${gainAmount.toFixed(6)} tokens`
+                );
+              } else if (rawGain < 0n) {
+                const lossAmount = Number(-rawGain) / 1e18;
+                console.log(
+                  `[info]    📉 Potential loss: ${lossAmount.toFixed(6)} tokens`
+                );
+              }
+            }
           } catch (e) {
             // Skip malformed logs
           }

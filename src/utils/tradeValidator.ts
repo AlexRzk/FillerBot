@@ -6,10 +6,10 @@
  */
 
 import { ethers } from 'ethers';
-import { Intent } from '../models/intent.js';
-import { SAFETY_CONFIG, TradeValidation } from '../config/safety.js';
-import { convertToUSD, getTokenDecimals } from '../utils/priceOracle.js';
-import { circuitBreaker } from '../utils/circuitBreaker.js';
+import { Intent } from '../models/intent';
+import { SAFETY_CONFIG, TradeValidation } from '../config/safety';
+import { convertToUSD, getTokenDecimals } from '../utils/priceOracle';
+import { circuitBreaker } from '../utils/circuitBreaker';
 
 /**
  * Validate a trade against all safety rules

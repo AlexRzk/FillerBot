@@ -6,10 +6,10 @@
  */
 
 import { ethers } from 'ethers';
-import { getMultipleTokenPrices } from '../utils/priceOracle.js';
-import { updatePriceCache } from '../planner/planner.js';
-import { TOKEN_ADDRESSES_BASE } from '../config/safety.js';
-import logger from '../logger.js';
+import { getMultipleTokenPrices } from '../utils/priceOracle';
+import { updatePriceCache } from '../planner/planner';
+import { TOKEN_ADDRESSES_BASE } from '../config/safety';
+import logger from '../logger';
 
 export class PriceOracleService {
   private provider: ethers.Provider;
