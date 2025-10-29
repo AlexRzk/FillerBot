@@ -60,7 +60,6 @@ export function getSigner(): ethers.Signer {
 
   try {
     signer = new ethers.Wallet(privateKey, provider);
-    logger.info(`Signer initialized for address: ${signer.getAddress()}`);
   } catch (error) {
     logger.error(`Failed to initialize signer: ${error}`);
     throw error;

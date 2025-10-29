@@ -80,7 +80,7 @@ export async function startMonitor(
 
   // Start appropriate feed listener based on configuration
   if (config.intentFeedSource === 'real') {
-    logger.info('Using REAL intent feed from Optimism mainnet APIs');
+    logger.info(`Using REAL intent feed from mainnet (Chain ID: ${config.chainId})`);
     feedStopFn = startRealFeed(config.monitorIntervalMs, (intents: Intent[]) => {
       intents.forEach(intent => {
         saveIntent(intent);
