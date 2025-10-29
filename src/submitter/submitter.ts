@@ -18,7 +18,15 @@ import { ethers } from 'ethers';
 import { Plan } from '../planner/planner';
 import { config } from '../config';
 import { formatAmount } from '../utils/eth';
+import { getProvider, getSigner } from '../eth/provider';
 import logger from '../logger';
+import {
+  createSettlementContract,
+  executeOrder,
+  estimateExecuteGas,
+  PriorityOrder,
+  validateOrder,
+} from '../contracts/settlementContract';
 
 /**
  * Result of plan submission.
@@ -43,9 +51,7 @@ export interface SubmissionResult {
  * In local mode: Sends to local test node (safe).
  * In live mode: Requires ENABLE_LIVE=true (must be explicitly set).
  * 
- * IMPLEMENTATION PLACEHOLDER:
- * This function should construct the settlement transaction based on the plan
- * and send it via the configured provider/signer.
+ * IMPLEMENTATION: Constructs and submits actual settlement transactions.
  * 
  * @param plan Plan to submit
  * @param settlementAddress Address of settlement contract
@@ -67,65 +73,124 @@ export async function submitPlan(
   }
 
   try {
-    // TODO: Replace with actual settlement contract interface and transaction construction
-    // Example (pseudo-code):
-    // const settlement = new ethers.Contract(
-    //   settlementAddress,
-    //   SETTLEMENT_ABI,
-    //   signer
-    // );
-    // const tx = await settlement.settle(plan.intentA, plan.intentB, {
-    //   gasLimit: plan.estimatedGas,
-    //   gasPrice: await getGasPrice(),
-    // });
-
-    // MOCK SUBMISSION (for local testing):
-    // In real implementation, construct and send actual transaction
-
     const profitInEth = formatAmount(plan.expectedProfit, 18);
 
     logger.info(
-      `[${config.mode.toUpperCase()} MODE] Would submit settlement tx for intents: ${plan.intentA.id} <-> ${plan.intentB.id}`
+      `[${config.mode.toUpperCase()} MODE] Submitting settlement tx for intents: ${plan.intentA.id} <-> ${plan.intentB.id}`
     );
     logger.info(`Settlement contract: ${settlementAddress}`);
-    logger.info(`Estimated gas: ${plan.estimatedGas} units (~${(Number(plan.estimatedGas) * 50 / 1e9).toFixed(6)} ETH gas cost @ 50 gwei)`);
-    logger.info(`Expected profit: ${profitInEth} ETH (${plan.expectedProfit} wei)`);
+    logger.info(`Estimated gas: ${plan.estimatedGas} units`);
+    logger.info(`Expected profit: ${profitInEth} ETH`);
 
     if (config.mode === 'local') {
       // In local mode, send to test node
       logger.info('Submitting to local test node...');
 
-      // TODO: Uncomment and implement real submission
-      // const signer = getSigner();
-      // const provider = getProvider();
-      /*
-      const tx = {
-        to: settlementAddress,
-        data: encodeSettlementCall(plan),
-        gasLimit: plan.estimatedGas,
-        gasPrice: await getGasPrice(),
-      };
+      try {
+        const provider = getProvider();
+        const signer = getSigner();
+        
+        // Create settlement contract instance
+        const settlement = createSettlementContract(settlementAddress, signer);
 
-      const txResponse = await signer.sendTransaction(tx);
-      logger.info(`Transaction sent: ${txResponse.hash}`);
+        // Build Priority Order from plan.intentA
+        const order: PriorityOrder = {
+          info: ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+            ['bytes32'],
+            [plan.intentA.id]
+          )),
+          inputToken: plan.intentA.sellToken,
+          outputToken: plan.intentA.buyToken,
+          inputAmount: plan.intentA.sellAmount,
+          minOutputAmount: plan.intentA.minBuyAmount,
+          swapper: plan.intentA.maker,
+          deadline: BigInt(Math.floor(Date.now() / 1000) + 300), // 5 min deadline
+          fee: BigInt(0),
+        };
 
-      const receipt = await waitForTxReceipt(txResponse.hash);
-      logger.info(`Transaction confirmed: ${receipt?.transactionHash}`);
+        // Validate order
+        const validation = validateOrder(order);
+        if (!validation.valid) {
+          logger.error(`Order validation failed: ${validation.error}`);
+          return {
+            success: false,
+            error: `Order validation failed: ${validation.error}`,
+          };
+        }
 
-      return {
-        success: true,
-        txHash: txResponse.hash,
-        receipt,
-      };
-      */
+        // Estimate gas
+        const gasLimit = await estimateExecuteGas(
+          settlement,
+          order,
+          '0x',  // Empty signature for now
+          await signer.getAddress()
+        );
 
-      // Mock return for testing without actual contract
-      const mockTxHash = `0x${'0'.repeat(64)}`; // Mock tx hash
-      return {
-        success: true,
-        txHash: mockTxHash,
-        receipt: null,
-      };
+        // Get current gas price
+        const feeData = await provider.getFeeData();
+        const gasPrice = feeData.gasPrice || ethers.toBigInt('1000000000');  // Default 1 gwei
+        const gasCostWei = gasLimit * gasPrice;
+        const gasCostEth = formatAmount(gasCostWei, 18);
+
+        logger.info(`Gas limit: ${gasLimit} units`);
+        logger.info(`Gas price: ${formatAmount(gasPrice, 9)} gwei`);
+        logger.info(`Gas cost: ~${gasCostEth} ETH`);
+
+        // Send transaction
+        const tx = await executeOrder(
+          settlement,
+          order,
+          '0x',  // Placeholder signature
+          {
+            gasLimit,
+            gasPrice,
+          }
+        );
+
+        if (!tx) {
+          logger.error('executeOrder returned null');
+          return {
+            success: false,
+            error: 'Failed to create transaction',
+          };
+        }
+
+        logger.info(`✅ Transaction sent: ${tx.hash}`);
+
+        // Wait for confirmation
+        const receipt = await tx.wait(1);
+        
+        if (receipt) {
+          logger.info(`✅ Transaction confirmed in block ${receipt.blockNumber}`);
+          logger.info(`Transaction hash: ${receipt.hash}`);
+          logger.info(`Gas used: ${receipt.gasUsed}`);
+          
+          const gasSpentWei = receipt.gasUsed * gasPrice;
+          const actualProfit = plan.expectedProfit - gasSpentWei;
+          const actualProfitEth = formatAmount(actualProfit, 18);
+          
+          logger.info(`💰 Actual profit after gas: ${actualProfitEth} ETH`);
+
+          return {
+            success: true,
+            txHash: tx.hash,
+            receipt,
+          };
+        } else {
+          logger.error('Transaction failed - receipt is null');
+          return {
+            success: false,
+            error: 'Transaction confirmation failed',
+            txHash: tx.hash,
+          };
+        }
+      } catch (error: any) {
+        logger.error(`Local submission error: ${error.message}`);
+        return {
+          success: false,
+          error: `Submission failed: ${error.message}`,
+        };
+      }
     } else {
       // LIVE MODE - requires explicit ENABLE_LIVE=true
       if (!config.enableLive) {
@@ -135,21 +200,112 @@ export async function submitPlan(
         };
       }
 
-      logger.warn('SUBMITTING TO LIVE NETWORK - ENSURE YOU UNDERSTAND THE RISKS');
+      logger.warn('🚨 SUBMITTING TO LIVE NETWORK - ENSURE YOU UNDERSTAND THE RISKS');
 
-      // TODO: Implement live network submission
-      // This should include:
-      // 1. Price feed oracle integration
-      // 2. Flashbots/MEV protection
-      // 3. Real settlement contract interaction
-      // 4. Error handling and recovery
+      try {
+        const provider = getProvider();
+        const signer = getSigner();
 
-      logger.error('Live network submission not yet implemented.');
+        // Create settlement contract instance
+        const settlement = createSettlementContract(settlementAddress, signer);
 
-      return {
-        success: false,
-        error: 'Live submission not implemented in stub.',
-      };
+        // Build Priority Order from plan.intentA
+        const order: PriorityOrder = {
+          info: ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+            ['bytes32'],
+            [plan.intentA.id]
+          )),
+          inputToken: plan.intentA.sellToken,
+          outputToken: plan.intentA.buyToken,
+          inputAmount: plan.intentA.sellAmount,
+          minOutputAmount: plan.intentA.minBuyAmount,
+          swapper: plan.intentA.maker,
+          deadline: BigInt(Math.floor(Date.now() / 1000) + 300),
+          fee: BigInt(0),
+        };
+
+        // Validate order
+        const validation = validateOrder(order);
+        if (!validation.valid) {
+          logger.error(`Order validation failed: ${validation.error}`);
+          return {
+            success: false,
+            error: `Order validation failed: ${validation.error}`,
+          };
+        }
+
+        // Estimate gas
+        const gasLimit = await estimateExecuteGas(
+          settlement,
+          order,
+          '0x',
+          await signer.getAddress()
+        );
+
+        // Get current gas price (with priority for live)
+        const feeData = await provider.getFeeData();
+        const maxPriorityFeePerGas = feeData.maxPriorityFeePerGas || BigInt(1000000000); // 1 gwei
+        const maxFeePerGas = feeData.maxFeePerGas || BigInt(50000000000); // 50 gwei
+
+        logger.info(`Max fee per gas: ${formatAmount(maxFeePerGas, 9)} gwei`);
+        logger.info(`Max priority fee: ${formatAmount(maxPriorityFeePerGas, 9)} gwei`);
+
+        // Send transaction with EIP-1559
+        const tx = await executeOrder(
+          settlement,
+          order,
+          '0x',
+          {
+            gasLimit,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+          }
+        );
+
+        if (!tx) {
+          logger.error('executeOrder returned null');
+          return {
+            success: false,
+            error: 'Failed to create live transaction',
+          };
+        }
+
+        logger.info(`✅ Live transaction sent: ${tx.hash}`);
+
+        // Wait for confirmation (more confirmations for live)
+        const receipt = await tx.wait(2);
+
+        if (receipt) {
+          logger.info(`✅ Transaction confirmed in block ${receipt.blockNumber}`);
+          logger.info(`Gas used: ${receipt.gasUsed}`);
+
+          const gasSpentWei = receipt.gasUsed * (feeData.gasPrice || BigInt(0));
+          const actualProfit = plan.expectedProfit - gasSpentWei;
+          const actualProfitEth = formatAmount(actualProfit, 18);
+
+          logger.info(`💰 Actual profit: ${actualProfitEth} ETH`);
+
+          return {
+            success: true,
+            txHash: tx.hash,
+            receipt,
+          };
+        } else {
+          logger.error('Live transaction failed - receipt is null');
+          return {
+            success: false,
+            error: 'Live transaction confirmation failed',
+            txHash: tx.hash,
+          };
+        }
+      } catch (error: any) {
+        logger.error(`Live submission error: ${error.message}`);
+        logger.error('Stack:', error.stack);
+        return {
+          success: false,
+          error: `Live submission failed: ${error.message}`,
+        };
+      }
     }
   } catch (error) {
     logger.error(`Plan submission failed: ${error}`);

@@ -29,6 +29,7 @@
 
 import { ethers } from 'ethers';
 import { Intent } from '../models/intent';
+import { getTokenDecimals } from '../utils/priceOracle';
 import {
   startMempoolOrderListener,
   stopMempoolOrderListener,
@@ -188,8 +189,13 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
         logs.forEach((log) => {
           try {
             const orderHash = log.topics[1];
-            const filler = log.topics[2];
-            const swapper = log.topics[3];
+            const rawFillerTopic = log.topics[2];
+            const rawSwapperTopic = log.topics[3];
+
+            // Extract actual 20-byte addresses from the 32-byte padded topics
+            // Addresses are stored in the last 40 hex characters of the 32-byte topic
+            const fillerAddress = ethers.getAddress(`0x${rawFillerTopic.slice(-40)}`);
+            const swapperAddress = ethers.getAddress(`0x${rawSwapperTopic.slice(-40)}`);
 
             // Remove from pending mempool orders if present
             const removedOrder = removePendingMempoolOrder(orderHash);
@@ -198,33 +204,42 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
               `[info] ✅ Order filled on-chain: ${orderHash.slice(0, 10)}...`
             );
             console.log(
-              `[info]    Filler: ${filler.slice(0, 10)}...`
+              `[info]    Filler: ${fillerAddress}`
             );
             console.log(
-              `[info]    Swapper: ${swapper.slice(0, 10)}...`
+              `[info]    Swapper: ${swapperAddress}`
             );
             
             // If we had this order in our mempool tracking, log the amounts
             if (removedOrder) {
               const decoded = removedOrder.decodedOrder;
+              
+              // Get token decimals for proper formatting
+              const inputDecimals = getTokenDecimals(decoded.inputToken);
+              const outputDecimals = getTokenDecimals(decoded.outputToken);
+              
+              const inputAmount = ethers.formatUnits(decoded.inputAmount, inputDecimals);
+              const outputAmount = ethers.formatUnits(decoded.outputAmount, outputDecimals);
+              
               console.log(
-                `[info]    Input: ${(decoded.inputAmount / BigInt(10 ** 18)).toString()} (${decoded.inputToken.slice(0, 10)}...)`
+                `[info]    Input: ${inputAmount} (${decoded.inputToken.slice(0, 10)}...)`
               );
               console.log(
-                `[info]    Output: ${(decoded.outputAmount / BigInt(10 ** 18)).toString()} (${decoded.outputToken.slice(0, 10)}...)`
+                `[info]    Output: ${outputAmount} (${decoded.outputToken.slice(0, 10)}...)`
               );
               
               // Calculate potential gain estimate (simple: output - input)
+              // Note: This is a simplification - real gains need to account for token prices and decimals
               const rawGain = decoded.outputAmount - decoded.inputAmount;
               if (rawGain > 0n) {
-                const gainAmount = Number(rawGain) / 1e18;
+                const gainAmount = ethers.formatUnits(rawGain, Math.min(inputDecimals, outputDecimals));
                 console.log(
-                  `[info]    💰 Potential gain: ${gainAmount.toFixed(6)} tokens`
+                  `[info]    💰 Potential gain: +${gainAmount}`
                 );
               } else if (rawGain < 0n) {
-                const lossAmount = Number(-rawGain) / 1e18;
+                const lossAmount = ethers.formatUnits(-rawGain, Math.min(inputDecimals, outputDecimals));
                 console.log(
-                  `[info]    📉 Potential loss: ${lossAmount.toFixed(6)} tokens`
+                  `[info]    📉 Potential loss: -${lossAmount}`
                 );
               }
             }
