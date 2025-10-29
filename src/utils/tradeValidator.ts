@@ -99,12 +99,7 @@ export async function validateTrade(
     }
 
     // Calculate estimated profit
-    // Profit = min(surplus from sell, surplus from buy) - gas cost
-    const surplusSell = sellAmountUSD; // What we receive from maker
-    const surplusBuy = buyAmountUSD;   // What we give to maker
-    
-    // We profit if we can arbitrage the difference
-    const estimatedProfitUSD = Math.min(surplusSell, surplusBuy) - gasCostUSD;
+    const estimatedProfitUSD = buyAmountUSD - sellAmountUSD - gasCostUSD;
 
     // Check minimum profit requirement
     if (estimatedProfitUSD < SAFETY_CONFIG.MIN_PROFIT_USD) {
@@ -119,8 +114,7 @@ export async function validateTrade(
     }
 
     // Calculate slippage
-    const expectedRatio = sellAmountUSD / buyAmountUSD;
-    const slippagePercent = Math.abs((expectedRatio - 1) * 100);
+    const slippagePercent = buyAmountUSD > 0 ? ((sellAmountUSD / buyAmountUSD) - 1) * 100 : 0;
 
     // Check slippage limit
     if (slippagePercent > SAFETY_CONFIG.MAX_SLIPPAGE_PERCENT) {

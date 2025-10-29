@@ -31,6 +31,7 @@ export interface Intent {
   deadline: number;
   status: 'pending' | 'matched' | 'executing' | 'executed' | 'failed' | 'cancelled';
   createdAt: number;
+  signature?: string; // UniswapX order signature
 }
 
 /**

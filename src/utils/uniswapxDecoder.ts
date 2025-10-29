@@ -219,3 +219,77 @@ export function decodePriorityOrderCalldata(
     return null;
   }
 }
+
+/**
+ * Calculate order hash for a Priority Order.
+ * 
+ * In UniswapX, the order hash is deterministic based on order fields.
+ * This is used to track orders and match them with Fill events.
+ * 
+ * @param order Decoded order
+ * @returns 32-byte order hash
+ */
+export function calculateOrderHash(order: DecodedPriorityOrder): string {
+  // Create a hash of the important fields
+  const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+    ['uint256', 'uint256', 'address', 'address', 'address', 'uint256', 'uint256', 'uint256'],
+    [
+      order.nonce,
+      order.deadline,
+      order.swapper,
+      order.inputToken,
+      order.outputToken,
+      order.inputAmount,
+      order.outputAmount,
+      order.priorityFee,
+    ]
+  );
+  
+  return ethers.keccak256(encoded);
+}
+
+/**
+ * Verify order hash matches expected value.
+ * 
+ * @param order Decoded order
+ * @param expectedHash Expected hash to verify against
+ * @returns true if hash matches
+ */
+export function verifyOrderHash(order: DecodedPriorityOrder, expectedHash: string): boolean {
+  const calculated = calculateOrderHash(order);
+  return calculated.toLowerCase() === expectedHash.toLowerCase();
+}
+
+/**
+ * Extract fields from encoded order data (if available).
+ * 
+ * This is a placeholder for the full UniswapX SDK integration.
+ * The SDK would provide proper field extraction and validation.
+ * 
+ * @param _encodedData ABI-encoded order data
+ * @returns Extracted fields
+ */
+export function extractOrderFields(_encodedData: string): Partial<DecodedPriorityOrder> {
+  try {
+    // This would be implemented with the actual UniswapX SDK
+    // For now, return empty partial object
+    return {};
+  } catch (error: any) {
+    console.debug('[debug] Failed to extract order fields:', error.message);
+    return {};
+  }
+}
+
+/**
+ * Format order for logging.
+ */
+export function formatOrderForLogging(order: DecodedPriorityOrder): string {
+  return `Order{
+    hash: ${order.orderHash.slice(0, 10)}...,
+    swapper: ${order.swapper.slice(0, 10)}...,
+    input: ${order.inputAmount} ${order.inputToken.slice(0, 10)}...,
+    output: ${order.outputAmount} ${order.outputToken.slice(0, 10)}...,
+    deadline: ${order.deadline},
+    fee: ${order.priorityFee}
+  }`;
+}

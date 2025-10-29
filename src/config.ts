@@ -1,103 +1,67 @@
+
 /**
  * src/config.ts
  * PURPOSE: Load and validate configuration from environment variables.
- * This is the single source of truth for all configuration across the application.
- * 
- * SAFETY: All real network submission is gated behind ENABLE_LIVE=true.
- * Local mode is the default and safe for testing without real broadcasts.
- * 
- * TODO: Add config validation schema using zod or similar library
  */
 
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { z } from 'zod';
 
 dotenv.config();
 
-export interface Config {
-  // Mode: 'local' (test node, no broadcasts) or 'live' (real network, requires ENABLE_LIVE=true)
-  mode: 'local' | 'live';
+const configSchema = z.object({
+  MODE: z.enum(['local', 'live']).default('local'),
+  RPC_URLS: z.string()
+    .transform(val => val.split(',').map(v => v.trim()).filter(v => v.length > 0))
+    .pipe(z.array(z.string().url()))
+    .default('http://127.0.0.1:8545'),
+  FORK_URL: z.preprocess(
+    (val) => val === '' ? undefined : val,
+    z.string().url().optional()
+  ),
+  PRIVATE_KEY: z.string(),
+  CHAIN_ID: z.string().transform(Number).default('31337'),
+  DATABASE_PATH: z.string().default('./data/bot.db'),
+  ENABLE_LIVE: z.string().transform(val => val === 'true').default('false'),
+  INTENT_FEED_SOURCE: z.enum(['mock', 'real']).default('mock'),
+  MOCK_FEED_FILE: z.string().default('./seeds/mock_intents.json'),
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  MONITOR_INTERVAL_MS: z.string().transform(Number).default('2000'),
+  MIN_PROFIT_THRESHOLD: z.string().transform(BigInt).default('1000000000000000'),
+  UNISWAPX_WEBHOOK_PORT: z.string().transform(Number).default('8080'),
+  ORDERBOOK_API_KEY: z.string().optional(),
+  ORDERBOOK_WS_URL: z.string().url().optional(),
+  SUBMITTER_RETRY_COUNT: z.string().transform(Number).default('3'),
+  SUBMITTER_RETRY_DELAY_MS: z.string().transform(Number).default('1000'),
+  FLASHBOTS_RPC_URL: z.string().url().optional(),
+  FLASHBOTS_AUTH_KEY: z.string().optional(),
+});
 
-  // RPC endpoint URL
-  rpcUrl: string;
-
-  // Fork URL for Anvil (optional)
-  forkUrl?: string;
-
-  // Private key for signing (dev/test only)
-  privateKey: string;
-
-  // Chain ID
-  chainId: number;
-
-  // Database file path
-  databasePath: string;
-
-  // Enable live network submission (must be explicitly true)
-  enableLive: boolean;
-
-  // Intent feed source: 'mock' (local JSON) or 'real' (Optimism mainnet APIs)
-  intentFeedSource: 'mock' | 'real';
-
-  // Mock intents feed file path
-  mockFeedFile: string;
-
-  // Logging level
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
-
-  // Monitor loop interval (ms)
-  monitorIntervalMs: number;
-
-  // Minimum profit threshold (in wei)
-  minProfitThreshold: bigint;
-}
+export type Config = z.infer<typeof configSchema>;
 
 function loadConfig(): Config {
-  const mode = (process.env.MODE || 'local') as 'local' | 'live';
-  const enableLive = process.env.ENABLE_LIVE === 'true';
-
-  // Safety check: enforce ENABLE_LIVE=true for live mode
-  if (mode === 'live' && !enableLive) {
-    throw new Error(
-      'FATAL: Mode is "live" but ENABLE_LIVE is not true. Set ENABLE_LIVE=true to enable live submission.'
-    );
+  // Handle RPC_URL vs RPC_URLS naming mismatch
+  if (process.env.RPC_URL && !process.env.RPC_URLS) {
+    process.env.RPC_URLS = process.env.RPC_URL;
   }
 
-  // Ensure private key is set
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) {
+  const parsed = configSchema.parse(process.env);
+
+  if (parsed.MODE === 'live' && !parsed.ENABLE_LIVE) {
+    throw new Error('FATAL: Mode is "live" but ENABLE_LIVE is not true.');
+  }
+
+  if (!parsed.PRIVATE_KEY) {
     throw new Error('FATAL: PRIVATE_KEY environment variable is not set');
   }
 
-  const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
-  const chainId = parseInt(process.env.CHAIN_ID || '31337', 10);
-  const databasePath = process.env.DATABASE_PATH || './data/bot.db';
-  const mockFeedFile = process.env.MOCK_FEED_FILE || './seeds/mock_intents.json';
-  const intentFeedSource = (process.env.INTENT_FEED_SOURCE || 'mock') as 'mock' | 'real';
-  const logLevel = (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error';
-  const monitorIntervalMs = parseInt(process.env.MONITOR_INTERVAL_MS || '2000', 10);
-  const minProfitThreshold = BigInt(process.env.MIN_PROFIT_THRESHOLD || '1000000000000000');
-
-  // Ensure database directory exists
-  const dbDir = path.dirname(databasePath);
+  const dbDir = path.dirname(parsed.DATABASE_PATH);
   if (!dbDir.includes('.') && dbDir !== '') {
     // TODO: Create directory if needed using fs.mkdirSync
   }
 
-  return {
-    mode,
-    rpcUrl,
-    forkUrl: process.env.FORK_URL,
-    privateKey,
-    chainId,
-    databasePath,
-    enableLive,
-    intentFeedSource,
-    mockFeedFile,
-    logLevel,
-    monitorIntervalMs,
-    minProfitThreshold,
-  };
+  return parsed;
 }
 
 export const config = loadConfig();

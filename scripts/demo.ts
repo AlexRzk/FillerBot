@@ -20,7 +20,7 @@ import { startMonitor, stopMonitor } from '../src/monitor/monitor';
 // Demo configuration
 const DEMO_DURATION_MS = 10000; // Run for 10 seconds
 const SETTLEMENT_ADDRESS = '0x9fE46736679d2D9a65F0991C02F50800747f9C5d'; // Mock from deploy
-const AMM_ADDRESS = '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'; // Mock from deploy
+
 
 /**
  * Run the demo.
@@ -61,7 +61,7 @@ async function runDemo() {
     console.log(`⏱️  Demo will run for ${DEMO_DURATION_MS / 1000} seconds`);
     console.log('');
 
-    await startMonitor(SETTLEMENT_ADDRESS, AMM_ADDRESS);
+    await startMonitor(SETTLEMENT_ADDRESS);
 
     // Wait for demo duration
     await new Promise((resolve) => setTimeout(resolve, DEMO_DURATION_MS));

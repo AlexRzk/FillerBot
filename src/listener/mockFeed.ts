@@ -1,11 +1,6 @@
 /**
  * src/listener/mockFeed.ts
  * PURPOSE: Generate synthetic intents from a mock JSON file for local testing.
- * Simulates an intent stream without requiring external APIs.
- * 
- * TODO: Implement real API listener for CoW Protocol
- * TODO: Implement WebSocket listener for real-time intent feeds
- * TODO: Add rate-limiting and deduplication logic
  */
 
 import * as fs from 'fs';
@@ -16,12 +11,9 @@ import { config } from '../config';
 let mockIntents: Intent[] = [];
 let currentIndex = 0;
 
-/**
- * Load mock intents from JSON file.
- */
 function loadMockIntents(): Intent[] {
   try {
-    const filePath = config.mockFeedFile;
+    const filePath = config.MOCK_FEED_FILE;
     if (!fs.existsSync(filePath)) {
       logger.warn(`Mock intents file not found: ${filePath}`);
       return [];
@@ -30,7 +22,6 @@ function loadMockIntents(): Intent[] {
     const data = fs.readFileSync(filePath, 'utf-8');
     const parsed = JSON.parse(data);
 
-    // Parse bigint fields
     const intents: Intent[] = parsed.map((item: Record<string, any>) => ({
       id: item.id,
       maker: item.maker,
@@ -51,26 +42,17 @@ function loadMockIntents(): Intent[] {
   }
 }
 
-/**
- * Start the mock feed generator.
- * Emits intents via callback on a fixed interval.
- * 
- * @param callback Function to call for each intent
- * @param intervalMs Interval between emissions (ms)
- * @returns Stop function to halt the feed
- */
 export function startMockFeed(
   callback: (intent: Intent) => void,
   intervalMs: number = 1000
 ): () => void {
-  // Load intents on first start
   if (mockIntents.length === 0) {
     mockIntents = loadMockIntents();
   }
 
   if (mockIntents.length === 0) {
     logger.warn('No mock intents available. Feed will not emit any intents.');
-    return () => {}; // noop stop function
+    return () => {};
   }
 
   const intervalId = setInterval(() => {
@@ -91,9 +73,6 @@ export function startMockFeed(
   };
 }
 
-/**
- * Get all loaded mock intents (for testing).
- */
 export function getMockIntents(): Intent[] {
   if (mockIntents.length === 0) {
     mockIntents = loadMockIntents();

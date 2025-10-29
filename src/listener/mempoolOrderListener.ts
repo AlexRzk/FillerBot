@@ -26,22 +26,11 @@ import { DecodedPriorityOrder, decodePriorityOrderCalldata } from '../utils/unis
 const UNISWAPX_PRIORITY_REACTOR_BASE = '0x000000001Ec5656dcdB24D90DFa42742738De729';
 
 /**
- * Represents a pending transaction-based order.
- */
-export interface PendingTxOrder {
-  txHash: string;
-  blockNumber: number | null;
-  timestamp: number;
-  decodedOrder: DecodedPriorityOrder;
-  retryCount: number;
-}
-
-/**
  * Mempool listener state.
  */
 interface MempoolListenerState {
   isRunning: boolean;
-  pendingOrders: Map<string, PendingTxOrder>; // Map of txHash => PendingTxOrder
+  pendingOrders: Map<string, any>; // Map of txHash => PendingTxOrder
   wsProvider: ethers.WebSocketProvider | null;
   unsubscribe?: () => void;
 }
@@ -209,7 +198,7 @@ function subscribeToPendingTransactions(onNewOrder: (orders: Intent[]) => void):
       });
 
       // Add to pending orders
-      const pendingOrder: PendingTxOrder = {
+      const pendingOrder: any = {
         txHash,
         blockNumber: tx.blockNumber,
         timestamp: Date.now(),
@@ -327,20 +316,6 @@ function txOrderToIntent(
 }
 
 /**
- * Get current pending orders from mempool.
- */
-export function getPendingMempoolOrders(): PendingTxOrder[] {
-  return Array.from(state.pendingOrders.values());
-}
-
-/**
- * Get count of pending orders.
- */
-export function getPendingMempoolOrdersCount(): number {
-  return state.pendingOrders.size;
-}
-
-/**
  * Get pending orders as Intent array for matcher.
  */
 export function getPendingMempoolOrdersAsIntents(): Intent[] {
@@ -361,7 +336,7 @@ export function getPendingMempoolOrdersAsIntents(): Intent[] {
  * Manually remove an order from pending list (e.g., after it's filled).
  * @returns The removed order if it existed, or undefined if not found
  */
-export function removePendingMempoolOrder(txHash: string): PendingTxOrder | undefined {
+export function removePendingMempoolOrder(txHash: string): any | undefined {
   if (state.pendingOrders.has(txHash)) {
     const order = state.pendingOrders.get(txHash);
     state.pendingOrders.delete(txHash);
@@ -370,11 +345,4 @@ export function removePendingMempoolOrder(txHash: string): PendingTxOrder | unde
     return order;
   }
   return undefined;
-}
-
-/**
- * Check if we have a WebSocket connection.
- */
-export function hasMempoolConnection(): boolean {
-  return state.wsProvider !== null && state.isRunning;
 }
