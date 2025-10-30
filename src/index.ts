@@ -26,8 +26,8 @@ const SETTLEMENT_ADDRESS_BASE = '0x000000001Ec5656dcdB24D90DFa42742738De729'; //
  */
 async function main(): Promise<void> {
   try {
-    logger.info(`Starting intent solver in ${config.MODE} mode`);
-    logger.info(`Configuration loaded: chain=${config.CHAIN_ID}, db=${config.DATABASE_PATH}`);
+    logger.info(`Starting intent solver in ${process.env.MODE} mode`);
+    logger.info(`Configuration loaded: chain=${process.env.CHAIN_ID}, db=${process.env.DATABASE_PATH}`);
 
     // Initialize database
     logger.info('Initializing database...');
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 
     // Log safety warnings for live mode
     if (config.MODE === 'live') {
-      if (!config.ENABLE_LIVE) {
+      if (!process.env.ENABLE_LIVE) {
         throw new Error('FATAL: Live mode requires ENABLE_LIVE=true');
       }
       logger.warn('');
@@ -62,9 +62,9 @@ async function main(): Promise<void> {
       // Use the REAL Base reactor address
       settlementAddress = SETTLEMENT_ADDRESS_BASE;
       logger.info(`Using Base Mainnet UniswapX Reactor: ${settlementAddress}`);
-      
-      if (config.CHAIN_ID !== 8453) {
-         logger.warn(`WARNING: MODE=live but CHAIN_ID is not 8453 (Base). Config CHAIN_ID is ${config.CHAIN_ID}`);
+
+      if (Number(process.env.CHAIN_ID) !== 8453) {
+         logger.warn(`WARNING: MODE=live but CHAIN_ID is not 8453 (Base). Config CHAIN_ID is ${process.env.CHAIN_ID}`);
       }
 
     } else {

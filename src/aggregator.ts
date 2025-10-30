@@ -1,31 +1,26 @@
 /**
  * src/aggregator.ts
- * REWRITTEN: To use a REAL 1inch API fetch call.
- * This is the "brain" of your bot.
+ * REWRITTEN: To use the REAL 0x (Matcha) API for high-performance quotes.
+ * This solves the 1inch rate-limit problem.
  */
 
 import { Intent } from './models/intent';
 import { getSigner } from './eth/provider';
 import logger from './logger';
-import { config } from './config';
 
-// The response structure from a 1inch / 0x API
+// The response structure from an aggregator API
 export interface AggregatorQuote {
-  // The exact amount of output token you will receive
   amountOut: bigint;
-  // The full transaction calldata to execute the swap
   txData: string;
-  // The address to send the transaction to
   txTo: string;
-  // The gas estimate for the swap
   gasEstimate: bigint;
 }
 
 // --- CONFIGURATION ---
-// 1. Get your API key from https://portal.1inch.dev/
-// 2. Add API_KEY to your .env file
-const API_KEY = process.env.API_KEY_1INCH; // Make sure to add this to your .env
-const API_BASE_URL = 'https://api.1inch.dev/swap/v6.0';
+// 1. Get your free API key from https://dashboard.0x.org/
+// 2. Add API_KEY_0X to your .env file
+const API_KEY_0X = process.env.API_KEY_0X; // Read from config
+const API_BASE_URL = 'https://base.api.0x.org/swap/v1/quote'; // 0x API for Base
 // --- END CONFIGURATION ---
 
 export class Aggregator {
@@ -33,12 +28,12 @@ export class Aggregator {
   private apiHeaders: Record<string, string>;
 
   constructor() {
-    if (!API_KEY) {
-      throw new Error('API_KEY is not set in your .env file. Get one from https://portal.1inch.dev/');
+    if (!API_KEY_0X) {
+      throw new Error('API_KEY_0X is not set in your .env file. Get one from https://dashboard.0x.org/');
     }
     
     this.apiHeaders = {
-      'Authorization': `Bearer ${API_KEY}`,
+      '0x-api-key': API_KEY_0X,
       'Accept': 'application/json'
     };
 
@@ -53,55 +48,58 @@ export class Aggregator {
   }
 
   /**
-   * Gets a real-time quote from a DEX aggregator to fill a UniswapX order.
+   * Gets a real-time quote from the 0x DEX aggregator.
    */
   public async getQuote(intent: Intent): Promise<AggregatorQuote> {
     if (!this.signerAddress) {
       throw new Error('Aggregator is not initialized (signer address not found).');
     }
     
-    // 1. Construct the API URL for the 1inch aggregator
-    const chainId = config.CHAIN_ID; // 8453 for Base
-    const swapParams = {
-      src: intent.sellToken,
-      dst: intent.buyToken,
-      amount: intent.sellAmount.toString(),
-      from: this.signerAddress,
-      // We are the filler, so the receiver of the swap output
-      // is our own bot's address. The 1inch txData will handle
-      // swapping and then calling the UniswapX reactor.
-      receiver: this.signerAddress,
-      // The UniswapX reactor is the 'spender' of our input tokens
-      // We must tell 1inch to generate txData that approves this address.
-      // NOTE: This assumes you have pre-approved the 1inch router.
-      // A more complex setup might be needed if 1inch needs to approve the *reactor*.
-      // For most aggregator fills, you just need to approve the 1inch router.
-      // Let's assume the 1inch router (tx.to) handles the interaction.
-      slippage: '0.5', // 0.5% slippage
-      disableEstimate: 'true', // We do our own simulation
-      // compatibilityMode: 'true', // May be needed for UniswapX
-    };
+    // 1. Construct the API URL for the 0x aggregator
+    const swapParams = new URLSearchParams({
+      sellToken: intent.sellToken,
+      buyToken: intent.buyToken,
+      sellAmount: intent.sellAmount.toString(),
+      // The filler (our bot) is the one taking the quote
+      takerAddress: this.signerAddress, 
+    });
 
     // --- REAL IMPLEMENTATION ---
-    const url = `${API_BASE_URL}/${chainId}/swap?${new URLSearchParams(swapParams)}`;
+    const url = `${API_BASE_URL}?${swapParams.toString()}`;
     let data: any;
 
     try {
       const response = await fetch(url, { headers: this.apiHeaders });
+      
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`1inch API error (${response.status}): ${errorText}`);
+        let errorJson;
+        try {
+          errorJson = JSON.parse(errorText);
+        } catch(e) {
+          // not a json error
+        }
+        
+        // 0x API gives specific error reasons
+        if (errorJson && errorJson.validationErrors) {
+           throw new Error(`0x API Validation Error: ${errorJson.validationErrors[0].description}`);
+        }
+        if (errorJson && errorJson.reason) {
+           throw new Error(`0x API Error: ${errorJson.reason}`);
+        }
+        throw new Error(`0x API error (${response.status}): ${errorText}`);
       }
+      
       data = await response.json();
       
       const quote: AggregatorQuote = {
-        amountOut: BigInt(data.dstAmount),
-        txData: data.tx.data,
-        txTo: data.tx.to,
-        gasEstimate: BigInt(data.tx.gas) + 50000n, // Add buffer
+        amountOut: BigInt(data.buyAmount),
+        txData: data.data,
+        txTo: data.to,
+        gasEstimate: BigInt(data.gas) + 50000n, // Add buffer
       };
 
-      logger.debug(`[aggregator] Quote for ${intent.id}: 
+      logger.debug(`[aggregator] 0x Quote for ${intent.id}: 
         IN: ${intent.sellAmount} ${intent.sellToken}
         OUT: ${quote.amountOut} ${intent.buyToken}
         USER_MIN: ${intent.minBuyAmount}`);
@@ -109,14 +107,14 @@ export class Aggregator {
       // We must check if the quote is even profitable *before* gas.
       if (quote.amountOut < intent.minBuyAmount) {
         throw new Error(
-          `Not profitable: Aggregator quote (${quote.amountOut}) is less than user's minimum (${intent.minBuyAmount})`
+          `Not profitable: 0x quote (${quote.amountOut}) is less than user's minimum (${intent.minBuyAmount})`
         );
       }
       
       return quote;
 
     } catch (error: any) {
-      logger.error(`[aggregator] Failed to get 1inch quote: ${error.message}`);
+      logger.warn(`[aggregator] Failed to get 0x quote: ${error.message}`);
       throw error;
     }
     // --- END REAL IMPLEMENTATION ---

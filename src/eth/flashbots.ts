@@ -13,7 +13,6 @@
  */
 
 import { ethers } from 'ethers';
-import { config } from '../config';
 import logger from '../logger';
 
 export interface FlashbotsBundle {
@@ -61,7 +60,10 @@ export async function submitBundleToFlashbots(
   targetBlockNumber: number,
   flashbotsPrivateKey: string
 ): Promise<FlashbotsBundleResponse> {
-  const relayUrl = config.FLASHBOTS_RELAY_URL;
+  const relayUrl = process.env.FLASHBOTS_RELAY_URL;
+  if (!relayUrl) {
+    throw new Error('FLASHBOTS_RELAY_URL not configured');
+  }
   const blockNumberHex = ethers.toBeHex(targetBlockNumber);
 
   const bundle: FlashbotsBundle = {
@@ -129,7 +131,10 @@ export async function simulateBundleOnFlashbots(
   blockNumber: number,
   flashbotsPrivateKey: string
 ): Promise<any> {
-  const relayUrl = config.FLASHBOTS_RELAY_URL;
+  const relayUrl = process.env.FLASHBOTS_RELAY_URL;
+  if (!relayUrl) {
+    throw new Error('FLASHBOTS_RELAY_URL not configured');
+  }
   const blockNumberHex = ethers.toBeHex(blockNumber);
 
   const bundle = {
@@ -189,7 +194,10 @@ export async function getBundleStats(
   blockNumber: number,
   flashbotsPrivateKey: string
 ): Promise<any> {
-  const relayUrl = config.FLASHBOTS_RELAY_URL;
+  const relayUrl = process.env.FLASHBOTS_RELAY_URL;
+  if (!relayUrl) {
+    throw new Error('FLASHBOTS_RELAY_URL not configured');
+  }
   const blockNumberHex = ethers.toBeHex(blockNumber);
 
   const jsonRpcPayload = {

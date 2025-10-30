@@ -27,13 +27,13 @@ export interface SubmissionResult {
 export async function submitPlan(plan: Plan, simResult: SimulationResult): Promise<SubmissionResult> {
   logger.info(`[submitter] Submitting plan: ${plan.id}`);
 
-  if (config.MODE === 'live' && !config.ENABLE_LIVE) {
+  if (config.MODE === 'live' && !process.env.ENABLE_LIVE) {
     logger.error('FATAL: Attempted live submission without ENABLE_LIVE=true');
     return { success: false, error: 'Live submission disabled' };
   }
 
   // Route to Flashbots if live mode with Flashbots configured
-  if (config.MODE === 'live' && config.FLASHBOTS_RELAY_URL && config.FLASHBOTS_AUTH_KEY) {
+  if (config.MODE === 'live' && process.env.FLASHBOTS_RELAY_URL && process.env.FLASHBOTS_AUTH_KEY) {
     return await submitWithFlashbots(plan, simResult);
   } else {
     return await submitStandard(plan, simResult);
@@ -60,7 +60,7 @@ async function submitStandard(plan: Plan, simResult: SimulationResult): Promise<
       gasLimit: simResult.gasEstimate,
       maxFeePerGas: feeData.maxFeePerGas,
       maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
-      chainId: config.CHAIN_ID,
+      chainId: process.env.CHAIN_ID,
     };
 
     logger.info(`[submitter] Sending TX to ${txOptions.to}`);
@@ -109,7 +109,7 @@ async function submitWithFlashbots(plan: Plan, simResult: SimulationResult): Pro
       gasLimit: simResult.gasEstimate,
       maxFeePerGas: feeData.maxFeePerGas,
       maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
-      chainId: config.CHAIN_ID,
+      chainId: process.env.CHAIN_ID,
     };
 
     // Sign transaction

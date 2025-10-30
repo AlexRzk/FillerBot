@@ -18,7 +18,6 @@ import { buildPlan } from '../planner/planner';
 import { simulatePlan } from '../simulator/simulator';
 import { submitPlan } from '../submitter/submitter';
 import { getProvider } from '../eth/provider';
-import { config } from '../config';
 import logger from '../logger';
 import { PriceOracleService } from '../services/priceOracleService';
 import { validateTrade, logRejectedTrade } from '../utils/tradeValidator';
@@ -38,6 +37,7 @@ const state: MonitorState = {
 
 let priceOracleService: PriceOracleService | null = null;
 let stopFeedListener: (() => void) | null = null;
+let monitorIntervalMs: number;
 
 /**
  * Start the monitor loop with the corrected single-intent aggregator flow.
@@ -51,9 +51,12 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
   state.isRunning = true;
   logger.info('✅ Monitor started');
   const provider = getProvider();
+  
+  // Initialize monitor interval
+  monitorIntervalMs = Number(process.env.MONITOR_INTERVAL_MS) || 5000;
 
   // Start Price Oracle (if in real mode)
-  if (config.INTENT_FEED_SOURCE === 'real') {
+  if (process.env.INTENT_FEED_SOURCE === 'real') {
     priceOracleService = new PriceOracleService(provider);
     priceOracleService.start(60000);
     logger.info('[safety] Price oracle service started');
@@ -65,17 +68,18 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
   }
 
   // Start Intent Feed
-  if (config.INTENT_FEED_SOURCE === 'real') {
-    if (!config.WS_RPC_URL) {
+  if (process.env.INTENT_FEED_SOURCE === 'real') {
+    if (!process.env.WS_RPC_URL) {
       throw new Error('Real feed requires WS_RPC_URL (WebSocket RPC URL)');
     }
     logger.info('Starting REAL mempool listener...');
-    stopFeedListener = await startPendingOrdersListener(provider, config.WS_RPC_URL, (intents) => {
+    stopFeedListener = await startPendingOrdersListener(provider, process.env.WS_RPC_URL, (intents) => {
       intents.forEach(saveIntent);
     });
   } else {
     logger.info('Starting MOCK intent feed...');
-    stopFeedListener = startMockFeed(saveIntent, config.MONITOR_INTERVAL_MS);
+    const intervalMs = Number(process.env.MONITOR_INTERVAL_MS) || 5000;
+    stopFeedListener = startMockFeed(saveIntent, intervalMs);
   }
 
   // Main Monitor Loop
@@ -91,7 +95,7 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
 
       if (pendingIntents.length === 0) {
         logger.debug('[monitor] No pending intents');
-        setTimeout(loop, config.MONITOR_INTERVAL_MS);
+        setTimeout(loop, monitorIntervalMs);
         return;
       }
 
@@ -122,7 +126,7 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
           logger.info(`[monitor] ✅ Simulation passed, gas=${simResult.gasEstimate.toString()}`);
 
           // 3. Validate Trade (USD-based checks + safety limits)
-          if (config.INTENT_FEED_SOURCE === 'real') {
+          if (process.env.INTENT_FEED_SOURCE === 'real') {
             if (circuitBreaker.isPaused()) {
               logger.warn(`[safety] ❌ Circuit breaker active: ${circuitBreaker.getState().reason}`);
               break;
@@ -173,11 +177,11 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
         }
       }
 
-      setTimeout(loop, config.MONITOR_INTERVAL_MS);
+      setTimeout(loop, monitorIntervalMs);
     } catch (error: any) {
       logger.error(`[monitor] Cycle error: ${error.message}`);
       state.lastError = String(error);
-      setTimeout(loop, config.MONITOR_INTERVAL_MS);
+      setTimeout(loop, monitorIntervalMs);
     }
   };
 
