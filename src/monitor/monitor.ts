@@ -1,19 +1,12 @@
 /**
  * src/monitor/monitor.ts
- * PURPOSE: Main orchestration loop with integrated safety systems.
- * REWRITTEN: To use the single-intent aggregator flow (not pair-matching).
- * 
- * CORRECTED FLOW:
- * For each pending intent:
- *   1. buildPlan(intent) → Get aggregator quote
- *   2. simulatePlan(plan) → Simulate plan.quote.txData via provider.call()
- *   3. validateTrade(plan.intent, simResult) → USD-based safety checks
- *   4. submitPlan(plan, simResult) → Submit to blockchain (standard or Flashbots)
+ * CORRIGÉ : Ajout du type 'any' pour 'intents' à la ligne 75.
  */
 
 import { saveIntent, getPendingIntents, saveRun } from '../db/sqlite';
 import { startMockFeed } from '../listener/mockFeed';
 import { startPendingOrdersListener } from '../listener/pendingOrdersListener';
+import { startCowListener } from '../listener/realFeed';
 import { buildPlan } from '../planner/planner';
 import { simulatePlan } from '../simulator/simulator';
 import { submitPlan } from '../submitter/submitter';
@@ -22,6 +15,7 @@ import logger from '../logger';
 import { PriceOracleService } from '../services/priceOracleService';
 import { validateTrade, logRejectedTrade } from '../utils/tradeValidator';
 import { circuitBreaker } from '../utils/circuitBreaker';
+import { SAFETY_CONFIG } from '../config/safety';
 
 interface MonitorState {
   isRunning: boolean;
@@ -36,6 +30,7 @@ const state: MonitorState = {
 
 let priceOracleService: PriceOracleService | null = null;
 let stopFeedListener: (() => void) | null = null;
+let stopCowListener: (() => void) | null = null;
 let monitorIntervalMs: number;
 
 /**
@@ -60,8 +55,9 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
     priceOracleService.start(60000);
     logger.info('[safety] Price oracle service started');
     logger.info(`[safety] Circuit breaker: ${circuitBreaker.isPaused() ? '🛑 PAUSED' : '✅ ACTIVE'}`);
-    logger.info(`[safety] Max position: $${process.env.SAFETY_MAX_POSITION_SIZE_USD}`);
-    logger.info(`[safety] Min profit: $${process.env.SAFETY_MIN_PROFIT_USD}`);
+    // Utilise SAFETY_CONFIG pour les logs, pas process.env directement
+    logger.info(`[safety] Max position: $${SAFETY_CONFIG.MAX_POSITION_SIZE_USD}`);
+    logger.info(`[safety] Min profit: $${SAFETY_CONFIG.MIN_PROFIT_USD}`);
   } else {
     logger.info('Using MOCK intent feed (price oracle disabled in mock mode)');
   }
@@ -72,9 +68,23 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
       throw new Error('Real feed requires WS_RPC_URL (WebSocket RPC URL)');
     }
     logger.info('Starting REAL mempool listener...');
-    stopFeedListener = await startPendingOrdersListener(provider, process.env.WS_RPC_URL, (intents) => {
+    
+    // --- CORRECTION ICI ---
+    // Ajout de 'provider' (il manquait) et du type 'any' pour 'intents'
+    stopFeedListener = await startPendingOrdersListener(provider, process.env.WS_RPC_URL, (intents: any) => {
       intents.forEach(saveIntent);
     });
+    // --- FIN DE LA CORRECTION ---
+
+    // Also start CoW orderbook as a fallback (in case mempool is private)
+    try {
+      logger.info('Starting CoW orderbook poller as fallback...');
+      stopCowListener = await startCowListener((intent) => saveIntent(intent));
+      logger.info('✅ CoW orderbook poller started');
+    } catch (err: any) {
+      logger.warn(`⚠️ Could not start CoW poller: ${err?.message || err}`);
+    }
+
   } else {
     logger.info('Starting MOCK intent feed...');
     const intervalMs = Number(process.env.MONITOR_INTERVAL_MS) || 5000;
@@ -202,6 +212,11 @@ export function stopMonitor(): void {
   if (stopFeedListener) {
     stopFeedListener();
     stopFeedListener = null;
+  }
+
+  if (stopCowListener) {
+    stopCowListener();
+    stopCowListener = null;
   }
 
   const stats = circuitBreaker.getStats();

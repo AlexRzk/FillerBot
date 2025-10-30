@@ -31,26 +31,56 @@ const BASE_MAINNET_WS = getWebSocketUrl(BASE_MAINNET_RPC);
 export async function startCowListener(
   callback: (intent: Intent) => void
 ): Promise<() => void> {
-  // CORRECTION : Utiliser l'URL de l'API V1 de CoW pour Base
-  const url = 'https://api.cow.fi/base/api/v1/orders';
+  // CoW Protocol API endpoint for Base mainnet
+  // Note: CoW on Base may have limited liquidity; this is a fallback for order discovery
+  const url = 'https://api.cow.fi/mainnet/api/v1/orders/active';
   
   const fetchOrders = async () => {
     try {
       const response = await fetch(url);
+      
+      // Check if response is JSON
+      if (!response.ok) {
+        logger.debug(`[Feed] CoW API returned ${response.status}, skipping this cycle`);
+        return;
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        logger.debug(`[Feed] CoW API returned non-JSON content-type: ${contentType}`);
+        return;
+      }
+      
       const data = await response.json();
-      const orders = (data as any).orders;
+      
+      // CoW API returns orders in different formats depending on the endpoint
+      const orders = Array.isArray(data) ? data : (data as any).orders || [];
+      
+      if (orders.length === 0) {
+        logger.debug(`[Feed] No active orders from CoW API`);
+        return;
+      }
+      
+      logger.debug(`[Feed] Fetched ${orders.length} orders from CoW API`);
       
       for (const order of orders) {
-        const intent = convertCowOrderToIntent(order);
-        callback(intent);
+        try {
+          const intent = convertCowOrderToIntent(order);
+          callback(intent);
+        } catch (err: any) {
+          logger.debug(`[Feed] Could not convert CoW order: ${err?.message}`);
+        }
       }
-    } catch (error) {
-      logger.error(`[Feed] Error fetching CoW orders: ${error}`);
+    } catch (error: any) {
+      logger.debug(`[Feed] Error fetching CoW orders: ${error?.message || error}`);
     }
   };
 
-  // Poll every 5 seconds
-  const intervalId = setInterval(fetchOrders, 5000);
+  // Initial fetch
+  await fetchOrders();
+  
+  // Poll every 10 seconds
+  const intervalId = setInterval(fetchOrders, 10000);
   
   return () => clearInterval(intervalId);
 }
