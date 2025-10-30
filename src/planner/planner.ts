@@ -7,7 +7,7 @@
 
 import { Intent } from '../models/intent';
 import logger from '../logger';
-import { aggregator } from '../../aggregator';
+import { aggregator } from '../aggregator';
 import { ethers } from 'ethers';
 
 // The Plan is now just a wrapper for the Aggregator's quote
