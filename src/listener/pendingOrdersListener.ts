@@ -25,9 +25,9 @@
 import { ethers } from 'ethers';
 import { Intent } from '../models/intent';
 // We need the utility function to get token decimals for correct formatting
-import { getTokenDecimals } from '../utils/priceOracle';
+import { getHardcodedTokenDecimals } from '../utils/priceOracle';
 import {
-  startMempoolOrderListener,
+  //startMempoolOrderListener,
   stopMempoolOrderListener,
   getPendingMempoolOrdersAsIntents,
   removePendingMempoolOrder,
@@ -65,8 +65,8 @@ const state: ListenerState = {
  */
 export async function startPendingOrdersListener(
   provider: ethers.Provider,
-  wsRpcUrl: string,
-  onNewOrder: (orders: Intent[]) => void
+  //wsRpcUrl: string,
+  //onNewOrder: (orders: Intent[]) => void
 ): Promise<() => void> {
   if (state.isRunning) {
     console.log('[warn] Pending orders listener already running');
@@ -84,8 +84,8 @@ export async function startPendingOrdersListener(
 
     // Step 1: Start mempool monitoring (detects new pending orders BEFORE execution)
     console.log('[info] Starting mempool order listener...');
-    state.mempoolUnsubscribe = await startMempoolOrderListener(wsRpcUrl, onNewOrder);
-    console.log('[info] ✅ Mempool listener started successfully');
+    //state.mempoolUnsubscribe = await startMempoolOrderListener(wsRpcUrl, onNewOrder);
+    //console.log('[info] ✅ Mempool listener started successfully');
 
     // Step 2: Subscribe to Fill events for cleanup tracking
     console.log('[info] Subscribing to Fill events for order completion tracking...');
@@ -213,8 +213,8 @@ function subscribeToFillEvents(provider: ethers.Provider): () => void {
               // Get token decimals for proper formatting
               // Note: This relies on a synchronous decimal-getter, 
               // which you have in 'src/utils/priceOracle.ts'
-              const inputDecimals = getTokenDecimals(decoded.inputToken);
-              const outputDecimals = getTokenDecimals(decoded.outputToken);
+              const inputDecimals = getHardcodedTokenDecimals(decoded.inputToken);
+              const outputDecimals = getHardcodedTokenDecimals(decoded.outputToken);
               
               const inputAmount = ethers.formatUnits(decoded.inputAmount, inputDecimals);
               const outputAmount = ethers.formatUnits(decoded.outputAmount, outputDecimals);

@@ -4,7 +4,7 @@
     "module": "commonjs",
     "lib": ["ES2020"],
     "outDir": "./dist",
-    "rootDir": ".",
+    "rootDir": "./src",
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -17,6 +17,6 @@
     "sourceMap": true,
     "moduleResolution": "node"
   },
-  "include": ["src/**/*.ts", "src/aggregator.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }

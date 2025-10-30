@@ -201,7 +201,7 @@ export function clearPriceCache(): void {
 /**
  * Get token decimals for common tokens
  */
-export function getTokenDecimals(tokenAddress: string): number {
+export function getHardcodedTokenDecimals(tokenAddress: string): number {
   const addr = tokenAddress.toLowerCase();
   
   // USDC, USDT have 6 decimals

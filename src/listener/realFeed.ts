@@ -31,7 +31,8 @@ const BASE_MAINNET_WS = getWebSocketUrl(BASE_MAINNET_RPC);
 export async function startCowListener(
   callback: (intent: Intent) => void
 ): Promise<() => void> {
-  const url = 'https://api.cow.fi/mainnet/api/v1/orders';
+  // CORRECTION : Utiliser l'URL de l'API V1 de CoW pour Base
+  const url = 'https://api.cow.fi/base/api/v1/orders';
   
   const fetchOrders = async () => {
     try {

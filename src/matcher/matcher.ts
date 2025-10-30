@@ -100,6 +100,8 @@ export function findCandidates(intents: Intent[]): Candidate[] {
             ammAddress,
           });
 
+          console.log(`[DEBUG] Considering intent to fill: ${intentA.id} with ${intentB.id}`);
+
           logger.debug(
             `Found candidate pair: ${intentA.id} <-> ${intentB.id} (overlap: ${overlapRatio.toFixed(2)}, score: ${score.toFixed(2)})`
           );

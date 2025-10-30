@@ -22,7 +22,6 @@ import logger from '../logger';
 import { PriceOracleService } from '../services/priceOracleService';
 import { validateTrade, logRejectedTrade } from '../utils/tradeValidator';
 import { circuitBreaker } from '../utils/circuitBreaker';
-import { SAFETY_CONFIG } from '../config/safety';
 
 interface MonitorState {
   isRunning: boolean;
@@ -61,8 +60,8 @@ export async function startMonitor(_settlementAddress: string): Promise<void> {
     priceOracleService.start(60000);
     logger.info('[safety] Price oracle service started');
     logger.info(`[safety] Circuit breaker: ${circuitBreaker.isPaused() ? '🛑 PAUSED' : '✅ ACTIVE'}`);
-    logger.info(`[safety] Max position: $${SAFETY_CONFIG.MAX_POSITION_SIZE_USD}`);
-    logger.info(`[safety] Min profit: $${SAFETY_CONFIG.MIN_PROFIT_USD}`);
+    logger.info(`[safety] Max position: $${process.env.SAFETY_MAX_POSITION_SIZE_USD}`);
+    logger.info(`[safety] Min profit: $${process.env.SAFETY_MIN_PROFIT_USD}`);
   } else {
     logger.info('Using MOCK intent feed (price oracle disabled in mock mode)');
   }

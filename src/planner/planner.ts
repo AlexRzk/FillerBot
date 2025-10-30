@@ -47,6 +47,8 @@ export async function buildPlan(intent: Intent): Promise<Plan> {
   // This is the *only* profit calculation that matters.
   const expectedProfit = quote.amountOut - intent.minBuyAmount;
 
+  console.log(`[DEBUG] Gain calculation: quote.amountOut (${quote.amountOut}) - intent.minBuyAmount (${intent.minBuyAmount}) = ${expectedProfit}`);
+
   // We already checked this in the aggregator, but we check again.
   if (expectedProfit <= 0n) {
     throw new Error(`Plan ${planId} is not profitable. 

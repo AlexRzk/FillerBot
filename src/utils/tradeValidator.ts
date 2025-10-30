@@ -92,10 +92,10 @@ export async function validateTrade(
     positionSizeUSD = Math.max(sellAmountUSD, buyAmountUSD);
 
     // Check position size limit
-    if (positionSizeUSD > SAFETY_CONFIG.MAX_POSITION_SIZE_USD) {
+    if (positionSizeUSD > Number(SAFETY_CONFIG.MAX_POSITION_SIZE_USD)) {
       return {
         isValid: false,
-        reason: `Position size ($${positionSizeUSD.toFixed(2)}) exceeds limit ($${SAFETY_CONFIG.MAX_POSITION_SIZE_USD})`,
+        reason: `Position size ($${positionSizeUSD.toFixed(2)}) exceeds limit ($${Number(SAFETY_CONFIG.MAX_POSITION_SIZE_USD)})`,
         estimatedProfitUSD, estimatedGasCostUSD, positionSizeUSD, slippagePercent,
       };
     }
@@ -110,7 +110,7 @@ export async function validateTrade(
     estimatedGasCostUSD = parseFloat(ethers.formatEther(totalGasCostWei)) * ethPriceUSD;
 
     // Check gas cost limit
-    if (estimatedGasCostUSD > SAFETY_CONFIG.MAX_GAS_COST_USD) {
+    if (estimatedGasCostUSD > Number(SAFETY_CONFIG.MAX_GAS_COST_USD)) {
       return {
         isValid: false,
         reason: `Gas cost ($${estimatedGasCostUSD.toFixed(2)}) exceeds limit ($${SAFETY_CONFIG.MAX_GAS_COST_USD})`,
@@ -125,10 +125,10 @@ export async function validateTrade(
     estimatedProfitUSD = quoteAmountOutUSD - sellAmountUSD - estimatedGasCostUSD;
 
     // Check minimum profit requirement
-    if (estimatedProfitUSD < SAFETY_CONFIG.MIN_PROFIT_USD) {
+    if (estimatedProfitUSD < Number(SAFETY_CONFIG.MIN_PROFIT_USD)) {
       return {
         isValid: false,
-        reason: `Estimated profit ($${estimatedProfitUSD.toFixed(2)}) below minimum ($${SAFETY_CONFIG.MIN_PROFIT_USD})`,
+        reason: `Estimated profit ($${estimatedProfitUSD.toFixed(2)}) below minimum ($${Number(SAFETY_CONFIG.MIN_PROFIT_USD)})`,
         estimatedProfitUSD, estimatedGasCostUSD, positionSizeUSD, slippagePercent,
       };
     }

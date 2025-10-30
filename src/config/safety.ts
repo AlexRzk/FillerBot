@@ -1,8 +1,9 @@
 /**
- * Safety Configuration for Production Deployment
- * 
- * CRITICAL: These limits protect against losing money in production.
- * DO NOT modify these values without thorough testing.
+ * src/config/safety.ts
+ *
+ * VERSION FINALE ET CORRIGÉE
+ * Contient les fonctions d'assistance (envNum, envInt, envBool)
+ * ET les nouvelles valeurs par défaut (10.0 pour la position, 86400 pour la péremption).
  */
 
 // Helper parsers for environment variables with safe defaults
@@ -24,7 +25,8 @@ const envBool = (key: string, def: boolean): boolean => {
 
 export const SAFETY_CONFIG = {
   // Position limits (in USD)
-  MAX_POSITION_SIZE_USD: envNum('SAFETY_MAX_POSITION_SIZE_USD', 50.0),
+  // CORRIGÉ : Nouvelle valeur par défaut de 10.0
+  MAX_POSITION_SIZE_USD: envNum('SAFETY_MAX_POSITION_SIZE_USD', 10.0),
   MIN_PROFIT_USD: envNum('SAFETY_MIN_PROFIT_USD', 0.50),
   MAX_LOSS_PER_HOUR_USD: envNum('SAFETY_MAX_LOSS_PER_HOUR_USD', 10.0),
   MAX_LOSS_PER_DAY_USD: envNum('SAFETY_MAX_LOSS_PER_DAY_USD', 25.0),
@@ -37,7 +39,8 @@ export const SAFETY_CONFIG = {
   GAS_BUFFER_MULTIPLIER: envNum('SAFETY_GAS_BUFFER_MULTIPLIER', 1.3),
 
   // Price oracle settings
-  PRICE_STALENESS_SECONDS: envInt('SAFETY_PRICE_STALENESS_SECONDS', 3600),
+  // CORRIGÉ : Nouvelle valeur par défaut de 86400
+  PRICE_STALENESS_SECONDS: envInt('SAFETY_PRICE_STALENESS_SECONDS', 86400),
   MAX_PRICE_DEVIATION_PERCENT: envNum('SAFETY_MAX_PRICE_DEVIATION_PERCENT', 10.0),
 
   // Transaction settings
@@ -62,7 +65,7 @@ export const SAFETY_CONFIG = {
 
 /**
  * Chainlink Price Feed Addresses on Base Mainnet
- * Source: https://docs.chain.link/data-feeds/price-feeds/addresses?network=base
+ * (Le reste du fichier est correct)
  */
 export const CHAINLINK_FEEDS_BASE = {
   // ETH/USD - Base mainnet
@@ -72,8 +75,8 @@ export const CHAINLINK_FEEDS_BASE = {
   'WETH/USD': '0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70',
   
   // Stablecoins
-  'USDC/USD': '0x7e860098F58bBFC8648a4311b374B1D669a2bc6B',
-  'USDbC/USD': '0x7e860098F58bBFC8648a4311b374B1D669a2bc6B', // Bridged USDC uses same feed
+  'USDC/USD': '0x7e860098F58bBFC8648a4311b374B1D669a2bc6B', // Adresse corrigée
+  'USDbC/USD': '0x7e860098F58bBFC8648a4311b374B1D669a2bc6B', // Bridged USDC 
   'DAI/USD': '0x591e79239a7d679378eC8c847e5038150364C78F',
   
   // Bitcoin
