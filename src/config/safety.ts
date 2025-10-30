@@ -5,42 +5,59 @@
  * DO NOT modify these values without thorough testing.
  */
 
+// Helper parsers for environment variables with safe defaults
+const envNum = (key: string, def: number): number => {
+  const v = process.env[key];
+  return v !== undefined && v !== '' ? Number(v) : def;
+};
+
+const envInt = (key: string, def: number): number => {
+  const v = process.env[key];
+  return v !== undefined && v !== '' ? parseInt(v, 10) : def;
+};
+
+const envBool = (key: string, def: boolean): boolean => {
+  const v = process.env[key];
+  if (v === undefined || v === '') return def;
+  return v.toLowerCase() === 'true' || v === '1';
+};
+
 export const SAFETY_CONFIG = {
   // Position limits (in USD)
-  MAX_POSITION_SIZE_USD: 50.0,          // Maximum $50 per trade
-  MIN_PROFIT_USD: 0.50,                 // Minimum $0.50 profit required
-  MAX_LOSS_PER_HOUR_USD: 10.0,          // Circuit breaker: max $10 loss/hour
-  MAX_LOSS_PER_DAY_USD: 25.0,           // Circuit breaker: max $25 loss/day
-  
+  MAX_POSITION_SIZE_USD: envNum('SAFETY_MAX_POSITION_SIZE_USD', 50.0),
+  MIN_PROFIT_USD: envNum('SAFETY_MIN_PROFIT_USD', 0.50),
+  MAX_LOSS_PER_HOUR_USD: envNum('SAFETY_MAX_LOSS_PER_HOUR_USD', 10.0),
+  MAX_LOSS_PER_DAY_USD: envNum('SAFETY_MAX_LOSS_PER_DAY_USD', 25.0),
+
   // Slippage protection
-  MAX_SLIPPAGE_PERCENT: 2.0,            // Maximum 2% slippage allowed
-  
+  MAX_SLIPPAGE_PERCENT: envNum('SAFETY_MAX_SLIPPAGE_PERCENT', 2.0),
+
   // Gas limits
-  MAX_GAS_COST_USD: 5.0,                // Maximum $5 gas cost per trade
-  GAS_BUFFER_MULTIPLIER: 1.3,           // Add 30% buffer to gas estimates
-  
+  MAX_GAS_COST_USD: envNum('SAFETY_MAX_GAS_COST_USD', 5.0),
+  GAS_BUFFER_MULTIPLIER: envNum('SAFETY_GAS_BUFFER_MULTIPLIER', 1.3),
+
   // Price oracle settings
-  PRICE_STALENESS_SECONDS: 3600,        // 1 hour max age for price data
-  MAX_PRICE_DEVIATION_PERCENT: 10.0,    // Circuit breaker: 10% price deviation
-  
+  PRICE_STALENESS_SECONDS: envInt('SAFETY_PRICE_STALENESS_SECONDS', 3600),
+  MAX_PRICE_DEVIATION_PERCENT: envNum('SAFETY_MAX_PRICE_DEVIATION_PERCENT', 10.0),
+
   // Transaction settings
-  MAX_PENDING_TXS: 3,                   // Maximum pending transactions
-  TX_TIMEOUT_SECONDS: 180,              // 3 minute timeout for tx confirmation
-  MAX_RETRIES: 3,                       // Maximum retry attempts
-  RETRY_DELAY_MS: 5000,                 // 5 seconds between retries
-  
+  MAX_PENDING_TXS: envInt('SAFETY_MAX_PENDING_TXS', 3),
+  TX_TIMEOUT_SECONDS: envInt('SAFETY_TX_TIMEOUT_SECONDS', 180),
+  MAX_RETRIES: envInt('SAFETY_MAX_RETRIES', 3),
+  RETRY_DELAY_MS: envInt('SAFETY_RETRY_DELAY_MS', 5000),
+
   // Circuit breakers
-  MAX_FAILED_TXS_PER_HOUR: 5,           // Auto-pause after 5 failures
-  CIRCUIT_BREAKER_COOLDOWN_MS: 3600000, // 1 hour cooldown after circuit break
-  
+  MAX_FAILED_TXS_PER_HOUR: envInt('SAFETY_MAX_FAILED_TXS_PER_HOUR', 5),
+  CIRCUIT_BREAKER_COOLDOWN_MS: envInt('SAFETY_CIRCUIT_BREAKER_COOLDOWN_MS', 3600000),
+
   // Simulation requirements
-  REQUIRE_SIMULATION: true,             // MUST simulate before every trade
-  SIMULATION_GAS_BUFFER: 1.5,           // 50% extra gas for simulation safety
-  
+  REQUIRE_SIMULATION: envBool('SAFETY_REQUIRE_SIMULATION', true),
+  SIMULATION_GAS_BUFFER: envNum('SAFETY_SIMULATION_GAS_BUFFER', 1.5),
+
   // Monitoring
-  LOG_ALL_INTENTS: true,                // Log every intent seen
-  LOG_REJECTED_TRADES: true,            // Log why trades were rejected
-  ALERT_ON_CIRCUIT_BREAK: true,         // Alert when circuit breaker triggers
+  LOG_ALL_INTENTS: envBool('SAFETY_LOG_ALL_INTENTS', true),
+  LOG_REJECTED_TRADES: envBool('SAFETY_LOG_REJECTED_TRADES', true),
+  ALERT_ON_CIRCUIT_BREAK: envBool('SAFETY_ALERT_ON_CIRCUIT_BREAK', true),
 };
 
 /**
