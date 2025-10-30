@@ -6,11 +6,11 @@
  * This REPLACES the old oracle-based profit calculation.
  */
 
-import { ethers } from 'ethers';
-import { Intent } from './models/intent';
-import { getSigner } from './eth/provider';
-import logger from './logger';
-import { config } from './config';
+
+import { Intent } from './src/models/intent';
+import { getSigner } from './src/eth/provider';
+import logger from './src/logger';
+import { config } from './src/config';
 
 // The response structure from a 1inch / 0x API
 export interface AggregatorQuote {
@@ -31,10 +31,10 @@ export class Aggregator {
     // We need our bot's address to get quotes
     getSigner()
       .getAddress()
-      .then((address) => {
+      .then((address: string) => {
         this.signerAddress = address;
       })
-      .catch((err) => {
+      .catch((err: any) => {
         logger.error(`[aggregator] CRITICAL: Failed to get signer address: ${err.message}`);
       });
   }
@@ -64,14 +64,7 @@ export class Aggregator {
 
     // 1. Construct the API URL for the aggregator
     // We'll use 1inch on Base (chain ID 8453) as an example
-    const chainId = 8453; // Base
-    const swapParams = {
-      fromTokenAddress: intent.sellToken,
-      toTokenAddress: intent.buyToken,
-      amount: intent.sellAmount.toString(),
-      fromAddress: this.signerAddress,
-      slippage: 1, // 1%
-    };
+
 
     // --- MOCK IMPLEMENTATION ---
     // In a real bot, you would fetch this URL:

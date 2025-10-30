@@ -104,6 +104,11 @@ export async function getL1Fee(txData: string): Promise<bigint> {
   }
 }
 
+export async function getFlashbotsProvider(): Promise<ethers.JsonRpcProvider> {
+  const relayUrl = config.FLASHBOTS_RELAY_URL;
+  return new ethers.JsonRpcProvider(relayUrl);
+}
+
 export function startHealthChecks(provider: ethers.FallbackProvider, interval: number): () => void {
   const check = async () => {
     try {

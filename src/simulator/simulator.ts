@@ -30,17 +30,17 @@ export async function simulatePlan(
   const settlementContract = createSettlementContract(settlementAddress, provider); // Use provider for static call
 
   const order: PriorityOrder = {
-    info: ethers.keccak256(ethers.toUtf8Bytes(plan.intentA.id)),
-    inputToken: plan.intentA.sellToken,
-    outputToken: plan.intentA.buyToken,
-    inputAmount: plan.intentA.sellAmount,
-    minOutputAmount: plan.intentA.minBuyAmount,
-    swapper: plan.intentA.maker,
-    deadline: BigInt(plan.intentA.deadline),
+    info: ethers.keccak256(ethers.toUtf8Bytes(plan.intent.id)),
+    inputToken: plan.intent.sellToken,
+    outputToken: plan.intent.buyToken,
+    inputAmount: plan.intent.sellAmount,
+    minOutputAmount: plan.intent.minBuyAmount,
+    swapper: plan.intent.maker,
+    deadline: BigInt(plan.intent.deadline),
     fee: BigInt(0), // Assuming no priority fee for this simulation
   };
 
-  const signature = plan.signatureA || '0x';
+  const signature = plan.intent.signature || '0x';
   if (signature === '0x') {
     return {
       success: false,

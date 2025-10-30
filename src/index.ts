@@ -1,24 +1,25 @@
-
 /**
  * src/index.ts
  * PURPOSE: Main entry point for the intent solver application.
  * Initializes all components and starts the monitor loop.
+ * ---
+ * CRITICAL FIX: Removed incorrect listener logic. The monitor
+ * is now responsible for starting the correct feed (real or mock).
  */
 
 import * as readline from 'readline';
 import { config } from './config';
 import logger from './logger';
-import { getDatabase, saveIntent } from './db/sqlite';
+import { getDatabase } from './db/sqlite';
 import { getProvider, getSigner, startHealthChecks } from './eth/provider';
 import { startMonitor, stopMonitor } from './monitor/monitor';
-import { startOrderbookListener } from './listener/orderbook';
-import { startMockFeed } from './listener/mockFeed';
 import { ethers } from 'ethers';
 
-// Mock contract addresses (in local mode, these are deployed by scripts/deploy-mocks.ts)
-// IMPORTANT: Deploy contracts first with: npx hardhat run scripts/deploy-mocks.ts --network localhost
-// Then update this address with the deployed settlement contract address
-const SETTLEMENT_ADDRESS = process.env.SETTLEMENT_ADDRESS || '0x9fE46736679d2D9a65F0991C02F50800747f9C5d'; // Will be overridden if env var set
+// This address is from your deploy-addresses.json
+// It is the MOCK settlement contract.
+// For Base Mainnet, this MUST be changed to the real UniswapX reactor.
+const SETTLEMENT_ADDRESS_LOCAL = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'; 
+const SETTLEMENT_ADDRESS_BASE = '0x000000001Ec5656dcdB24D90DFa42742738De729'; // UniswapX Reactor on Base
 
 /**
  * Main function.
@@ -45,6 +46,8 @@ async function main(): Promise<void> {
     const signerAddr = await signer.getAddress();
     logger.info(`Signer initialized: ${signerAddr}`);
 
+    let settlementAddress: string;
+
     // Log safety warnings for live mode
     if (config.MODE === 'live') {
       if (!config.ENABLE_LIVE) {
@@ -53,27 +56,28 @@ async function main(): Promise<void> {
       logger.warn('');
       logger.warn('╔═════════════════════════════════════════════════════════════════╗');
       logger.warn('║  LIVE MODE ACTIVATED - REAL TRANSACTIONS WILL BE SUBMITTED      ║');
-      logger.warn('║  Ensure you understand the risks and have reviewed all code     ║');
-      logger.warn('║  Double-check contract addresses, gas limits, and slippage      ║');
       logger.warn('╚═════════════════════════════════════════════════════════════════╝');
       logger.warn('');
-    }
-
-    // Start the appropriate intent feed
-    if (config.INTENT_FEED_SOURCE === 'real') {
-      if (!config.ORDERBOOK_API_KEY || !config.ORDERBOOK_WS_URL) {
-        throw new Error('ORDERBOOK_API_KEY and ORDERBOOK_WS_URL must be set for real feed');
+      
+      // Use the REAL Base reactor address
+      settlementAddress = SETTLEMENT_ADDRESS_BASE;
+      logger.info(`Using Base Mainnet UniswapX Reactor: ${settlementAddress}`);
+      
+      if (config.CHAIN_ID !== 8453) {
+         logger.warn(`WARNING: MODE=live but CHAIN_ID is not 8453 (Base). Config CHAIN_ID is ${config.CHAIN_ID}`);
       }
-      logger.info('Using REAL intent feed from orderbook WebSocket.');
-      startOrderbookListener(config.ORDERBOOK_API_KEY, config.ORDERBOOK_WS_URL, saveIntent);
+
     } else {
-      logger.info('Using MOCK intent feed from local JSON file.');
-      startMockFeed(saveIntent, config.MONITOR_INTERVAL_MS);
+      // Use the LOCAL mock settlement address
+      settlementAddress = SETTLEMENT_ADDRESS_LOCAL;
+      logger.info(`Using LOCAL MockSettlement Contract: ${settlementAddress}`);
     }
 
-    // Start monitor
+    // ---
+    // CORRECTED LOGIC: All listener logic is now handled inside startMonitor()
+    // ---
     logger.info('Starting monitor loop...');
-    await startMonitor(SETTLEMENT_ADDRESS);
+    await startMonitor(settlementAddress); // Pass the correct address
     logger.info('Monitor loop running');
 
     // Handle graceful shutdown
@@ -83,6 +87,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 }
+
+// (setupGracefulShutdown function remains the same)
 
 /**
  * Setup graceful shutdown on signals.

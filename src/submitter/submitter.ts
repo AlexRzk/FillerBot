@@ -1,196 +1,173 @@
 /**
  * src/submitter/submitter.ts
- * PURPOSE: Submit executed plans to the blockchain.
+ * PURPOSE: Submit the aggregator's transaction to the blockchain.
+ * In LIVE mode, this is WRAPPED in a Flashbots bundle for MEV protection.
  */
 
 import { ethers } from 'ethers';
 import { Plan } from '../planner/planner';
 import { config } from '../config';
-import { formatAmount } from '../utils/eth';
 import { getProvider, getSigner } from '../eth/provider';
+import { submitBundleToFlashbots, simulateBundleOnFlashbots } from '../eth/flashbots';
 import logger from '../logger';
-import {
-  createSettlementContract,
-  estimateExecuteGas,
-  PriorityOrder,
-  validateOrder,
-} from '../contracts/settlementContract';
-import { retry } from '../utils/retry';
-import { FlashbotsBundleProvider } from '@flashbots/ethers-provider-bundle';
+import { SimulationResult } from '../simulator/simulator';
 
 export interface SubmissionResult {
   success: boolean;
   txHash?: string;
   receipt?: ethers.TransactionReceipt | null;
+  bundleHash?: string; // For Flashbots bundles
   error?: string;
 }
 
-async function submitWithFlashbots(
-  plan: Plan,
-  settlementAddress: string
-): Promise<SubmissionResult> {
-  const provider = getProvider();
-  const signer = getSigner();
-
-  const flashbotsProvider = await FlashbotsBundleProvider.create(
-    provider,
-    signer,
-    'https://relay.flashbots.net'
-  );
-
-  const settlement = createSettlementContract(settlementAddress, signer);
-
-  const order: PriorityOrder = {
-    info: ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(['bytes32'], [plan.intentA.id])),
-    inputToken: plan.intentA.sellToken,
-    outputToken: plan.intentA.buyToken,
-    inputAmount: plan.intentA.sellAmount,
-    minOutputAmount: plan.intentA.minBuyAmount,
-    swapper: plan.intentA.maker,
-    deadline: BigInt(plan.intentA.deadline),
-    fee: BigInt(0),
-  };
-
-  const signature = plan.signatureA || '0x';
-
-  const tx = await settlement.execute.populateTransaction(order, signature);
-  const signedTx = await signer.signTransaction(tx);
-
-  const bundle = [signedTx];
-  const bundleResult = await flashbotsProvider.sendRawBundle(bundle, await provider.getBlockNumber() + 1);
-
-  if ('error' in bundleResult) {
-    return {
-      success: false,
-      error: bundleResult.error.message,
-    };
-  }
-
-  const txResponse = await provider.getTransaction(bundleResult.bundleHash);
-  if (!txResponse) {
-    return {
-      success: false,
-      error: 'Transaction not found',
-    };
-  }
-
-  const receipt = await txResponse.wait();
-
-  if (!receipt) {
-    return {
-      success: false,
-      error: 'Transaction receipt not found',
-    };
-  }
-
-  return {
-    success: true,
-    txHash: receipt.hash,
-    receipt,
-  };
-}
-
+/**
+ * Submits the plan to the blockchain.
+ * Routes to Flashbots if in 'live' mode.
+ *
+ * @param plan The plan to execute.
+ * @param simulation The gas simulation result.
+ * @returns A promise with the submission result.
+ */
 export async function submitPlan(
   plan: Plan,
-  settlementAddress: string
+  simulation: SimulationResult
 ): Promise<SubmissionResult> {
-  logger.info(`Submitting plan: ${plan.id}`);
-
-  if (config.MODE === 'live' && !config.ENABLE_LIVE) {
-    logger.error('FATAL: Attempted live submission without ENABLE_LIVE=true');
-    return {
-      success: false,
-      error: 'Live submission disabled. Set ENABLE_LIVE=true to enable.',
-    };
-  }
+  logger.info(`[submitter] Submitting plan: ${plan.id}`);
 
   if (config.MODE === 'live') {
-    return submitWithFlashbots(plan, settlementAddress);
+    if (!config.ENABLE_LIVE) {
+      logger.error('FATAL: Attempted live submission without ENABLE_LIVE=true');
+      return { success: false, error: 'Live submission disabled.' };
+    }
+    return await submitBundleWithFlashbots(plan, simulation);
+  } else {
+    // Use normal submission for local testing
+    return await submitStandardTransaction(plan, simulation);
+  }
+}
+
+/**
+ * Submits a standard transaction (for LOCAL testing).
+ */
+async function submitStandardTransaction(
+  plan: Plan,
+  simulation: SimulationResult
+): Promise<SubmissionResult> {
+  logger.warn(`[submitter] Using STANDARD submission (local mode)`);
+  const signer = getSigner();
+  const provider = getProvider();
+
+  try {
+    const { quote } = plan;
+    const feeData = await provider.getFeeData();
+
+    const txOptions = {
+      to: quote.txTo,
+      data: quote.txData,
+      gasLimit: simulation.gasEstimate,
+      maxFeePerGas: feeData.maxFeePerGas || undefined,
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || undefined,
+    };
+
+    const tx = await signer.sendTransaction(txOptions);
+    logger.info(`[submitter] ✅ (local) Transaction sent: ${tx.hash}`);
+    const receipt = await tx.wait(1);
+
+    if (receipt) {
+      logger.info(`[submitter] ✅ (local) Transaction confirmed in block ${receipt.blockNumber}`);
+      return { success: true, txHash: tx.hash, receipt };
+    } else {
+      return { success: false, error: 'Transaction failed - receipt is null' };
+    }
+  } catch (error: any) {
+    logger.error(`[submitter] (local) Submission failed: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Submits the transaction as a private Flashbots bundle (for LIVE mode).
+ * 
+ * How it works:
+ * 1. Sign the swap transaction with our signer
+ * 2. Optional: Simulate the bundle on Flashbots first
+ * 3. Submit to Flashbots with authentication signature
+ * 4. Flashbots broadcasts to block builders (private - no mempool exposure)
+ * 5. Returns bundle hash to track inclusion status
+ */
+async function submitBundleWithFlashbots(
+  plan: Plan,
+  simulation: SimulationResult
+): Promise<SubmissionResult> {
+  logger.info(`[submitter] Using FLASHBOTS submission (live mode)`);
+
+  if (!config.FLASHBOTS_AUTH_KEY) {
+    logger.error('[submitter] FLASHBOTS_AUTH_KEY not configured');
+    return { success: false, error: 'Flashbots auth key missing' };
   }
 
   try {
-    const profitInEth = formatAmount(plan.expectedProfit, 18);
-
-    logger.info(
-      `[${config.MODE.toUpperCase()} MODE] Submitting settlement tx for intents: ${plan.intentA.id} <-> ${plan.intentB.id}`
-    );
-    logger.info(`Settlement contract: ${settlementAddress}`);
-    logger.info(`Estimated gas: ${plan.estimatedGas} units`);
-    logger.info(`Expected profit: ${profitInEth} ETH`);
-
-    const signature = plan.signatureA;
-    if (!signature) {
-      return {
-        success: false,
-        error: 'Signature not found in plan.',
-      };
-    }
-
-    const provider = getProvider();
     const signer = getSigner();
-    const settlement = createSettlementContract(settlementAddress, signer);
+    const provider = getProvider();
+    const { quote } = plan;
 
-    const order: PriorityOrder = {
-      info: ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(['bytes32'], [plan.intentA.id])),
-      inputToken: plan.intentA.sellToken,
-      outputToken: plan.intentA.buyToken,
-      inputAmount: plan.intentA.sellAmount,
-      minOutputAmount: plan.intentA.minBuyAmount,
-      swapper: plan.intentA.maker,
-      deadline: BigInt(plan.intentA.deadline),
-      fee: BigInt(0),
+    // Get current block for bundle target
+    const currentBlock = await provider.getBlockNumber();
+    const targetBlock = currentBlock + 1; // Target next block
+
+    logger.info(`[submitter] Current block: ${currentBlock}, targeting block ${targetBlock}`);
+
+    // Get gas pricing for the transaction
+    const feeData = await provider.getFeeData();
+
+    // Build the transaction
+    const tx = {
+      to: quote.txTo,
+      from: await signer.getAddress(),
+      data: quote.txData,
+      gasLimit: simulation.gasEstimate,
+      maxFeePerGas: feeData.maxFeePerGas || BigInt(1),
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || BigInt(1),
     };
 
-    const validation = validateOrder(order);
-    if (!validation.valid) {
-      logger.error(`Order validation failed: ${validation.error}`);
-      return {
-        success: false,
-        error: `Order validation failed: ${validation.error}`,
-      };
-    }
+    // Sign the transaction
+    logger.debug('[submitter] Signing transaction for Flashbots...');
+    const signedTx = await signer.signTransaction(tx);
 
-    const gasLimit = await estimateExecuteGas(
-      settlement,
-      order,
-      signature,
-      await signer.getAddress()
+    // Optional: Simulate the bundle before submitting (recommended)
+    logger.debug('[submitter] Simulating bundle on Flashbots...');
+    const simulationResult = await simulateBundleOnFlashbots(
+      [signedTx],
+      targetBlock,
+      config.FLASHBOTS_AUTH_KEY
     );
 
-    const feeData = await provider.getFeeData();
-    const txOptions = {
-      gasLimit,
-      maxFeePerGas: feeData.maxFeePerGas || undefined,
-      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || undefined,
-      to: settlementAddress,
-      data: settlement.interface.encodeFunctionData('execute', [order, signature]),
-      chainId: config.CHAIN_ID,
-    };
-
-    const tx = await retry(() => signer.sendTransaction(txOptions), config.SUBMITTER_RETRY_COUNT, config.SUBMITTER_RETRY_DELAY_MS);
-    logger.info(`✅ Transaction sent: ${tx.hash}`);
-    const receipt = await tx.wait(config.MODE === 'live' ? 2 : 1);
-
-    if (receipt) {
-      logger.info(`✅ Transaction confirmed in block ${receipt.blockNumber}`);
-      return {
-        success: true,
-        txHash: tx.hash,
-        receipt,
-      };
+    if (!simulationResult) {
+      logger.warn('[submitter] Bundle simulation failed, attempting submission anyway');
+    } else if (simulationResult.revertingTxHashes?.length > 0) {
+      logger.error('[submitter] Bundle would revert - aborting submission');
+      return { success: false, error: 'Bundle simulation shows revert' };
     } else {
-      logger.error('Transaction failed - receipt is null');
-      return {
-        success: false,
-        error: 'Transaction confirmation failed',
-        txHash: tx.hash,
-      };
+      logger.info(`[submitter] ✅ Simulation passed: ${simulationResult.totalGasUsed} gas`);
     }
-  } catch (error: any) {
-    logger.error(`Plan submission failed: ${error.message}`);
+
+    // Submit the bundle to Flashbots
+    logger.info('[submitter] Submitting bundle to Flashbots Relay...');
+    const bundleResponse = await submitBundleToFlashbots(
+      [signedTx],
+      targetBlock,
+      config.FLASHBOTS_AUTH_KEY
+    );
+
+    logger.info(`[submitter] ✅ Bundle submitted: ${bundleResponse.bundleHash}`);
     return {
-      success: false,
-      error: `Submission failed: ${error.message}`,
+      success: true,
+      bundleHash: bundleResponse.bundleHash,
+      txHash: undefined, // Bundle hash, not tx hash - will be revealed when included
     };
+  } catch (error: any) {
+    logger.error(`[submitter] Flashbots submission failed: ${error.message}`);
+    return { success: false, error: error.message };
   }
 }
+
