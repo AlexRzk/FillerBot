@@ -35,6 +35,9 @@ const configSchema = z.object({
   SUBMITTER_RETRY_DELAY_MS: z.string().transform(Number).default('1000'),
   FLASHBOTS_RPC_URL: z.string().url().optional(),
   FLASHBOTS_AUTH_KEY: z.string().optional(),
+  AGGREGATOR_ADDRESS: z.string().optional(),
+  WS_RPC_URL: z.string().url().optional(),
+  FLASHBOTS_RELAY_URL: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -62,5 +65,9 @@ export const config = {
   UNISWAPX_WEBHOOK_PORT: parseInt(process.env.UNISWAPX_WEBHOOK_PORT || '8080', 10),
   MONITOR_INTERVAL_MS: parseInt(process.env.MONITOR_INTERVAL_MS || '5000', 10),
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+  AGGREGATOR_ADDRESS: process.env.AGGREGATOR_ADDRESS || '0x1111111254EEB25477B68fb85Ed929f73A960582', // 1inch default
+  WS_RPC_URL: process.env.WS_RPC_URL,
+  FLASHBOTS_RELAY_URL: process.env.FLASHBOTS_RELAY_URL || 'https://relay.flashbots.net',
+  FLASHBOTS_AUTH_KEY: process.env.FLASHBOTS_AUTH_KEY,
   amms,
 };
