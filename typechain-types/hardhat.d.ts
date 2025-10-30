@@ -21,14 +21,6 @@ declare module "hardhat/types/runtime" {
       name: "MockAMM",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.MockAMM__factory>;
-    getContractFactory(
-      name: "IMockAMM",
-      signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.IMockAMM__factory>;
-    getContractFactory(
-      name: "MockSettlement",
-      signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.MockSettlement__factory>;
 
     getContractAt(
       name: "IERC20",
@@ -40,16 +32,6 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.MockAMM>;
-    getContractAt(
-      name: "IMockAMM",
-      address: string | ethers.Addressable,
-      signer?: ethers.Signer
-    ): Promise<Contracts.IMockAMM>;
-    getContractAt(
-      name: "MockSettlement",
-      address: string | ethers.Addressable,
-      signer?: ethers.Signer
-    ): Promise<Contracts.MockSettlement>;
 
     deployContract(
       name: "IERC20",
@@ -59,14 +41,6 @@ declare module "hardhat/types/runtime" {
       name: "MockAMM",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MockAMM>;
-    deployContract(
-      name: "IMockAMM",
-      signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.IMockAMM>;
-    deployContract(
-      name: "MockSettlement",
-      signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.MockSettlement>;
 
     deployContract(
       name: "IERC20",
@@ -78,16 +52,6 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MockAMM>;
-    deployContract(
-      name: "IMockAMM",
-      args: any[],
-      signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.IMockAMM>;
-    deployContract(
-      name: "MockSettlement",
-      args: any[],
-      signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.MockSettlement>;
 
     // default types
     getContractFactory(

@@ -1,4 +1,3 @@
-
 /**
  * src/submitter/submitter.ts
  * PURPOSE: Submit executed plans to the blockchain.
@@ -16,6 +15,8 @@ import {
   PriorityOrder,
   validateOrder,
 } from '../contracts/settlementContract';
+import { retry } from '../utils/retry';
+import { FlashbotsBundleProvider } from '@flashbots/ethers-provider-bundle';
 
 export interface SubmissionResult {
   success: boolean;
@@ -24,19 +25,69 @@ export interface SubmissionResult {
   error?: string;
 }
 
-async function retry<T>(fn: () => Promise<T>, retries: number, delay: number): Promise<T> {
-  let lastError: Error | undefined;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      lastError = error;
-      logger.warn(`Attempt ${i + 1} failed. Retrying in ${delay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      delay *= 2; // Exponential backoff
-    }
+async function submitWithFlashbots(
+  plan: Plan,
+  settlementAddress: string
+): Promise<SubmissionResult> {
+  const provider = getProvider();
+  const signer = getSigner();
+
+  const flashbotsProvider = await FlashbotsBundleProvider.create(
+    provider,
+    signer,
+    'https://relay.flashbots.net'
+  );
+
+  const settlement = createSettlementContract(settlementAddress, signer);
+
+  const order: PriorityOrder = {
+    info: ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(['bytes32'], [plan.intentA.id])),
+    inputToken: plan.intentA.sellToken,
+    outputToken: plan.intentA.buyToken,
+    inputAmount: plan.intentA.sellAmount,
+    minOutputAmount: plan.intentA.minBuyAmount,
+    swapper: plan.intentA.maker,
+    deadline: BigInt(plan.intentA.deadline),
+    fee: BigInt(0),
+  };
+
+  const signature = plan.signatureA || '0x';
+
+  const tx = await settlement.execute.populateTransaction(order, signature);
+  const signedTx = await signer.signTransaction(tx);
+
+  const bundle = [signedTx];
+  const bundleResult = await flashbotsProvider.sendRawBundle(bundle, await provider.getBlockNumber() + 1);
+
+  if ('error' in bundleResult) {
+    return {
+      success: false,
+      error: bundleResult.error.message,
+    };
   }
-  throw lastError;
+
+  const txResponse = await provider.getTransaction(bundleResult.bundleHash);
+  if (!txResponse) {
+    return {
+      success: false,
+      error: 'Transaction not found',
+    };
+  }
+
+  const receipt = await txResponse.wait();
+
+  if (!receipt) {
+    return {
+      success: false,
+      error: 'Transaction receipt not found',
+    };
+  }
+
+  return {
+    success: true,
+    txHash: receipt.hash,
+    receipt,
+  };
 }
 
 export async function submitPlan(
@@ -51,6 +102,10 @@ export async function submitPlan(
       success: false,
       error: 'Live submission disabled. Set ENABLE_LIVE=true to enable.',
     };
+  }
+
+  if (config.MODE === 'live') {
+    return submitWithFlashbots(plan, settlementAddress);
   }
 
   try {

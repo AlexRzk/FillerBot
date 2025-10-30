@@ -9,13 +9,16 @@ import * as readline from 'readline';
 import { config } from './config';
 import logger from './logger';
 import { getDatabase, saveIntent } from './db/sqlite';
-import { getProvider, getSigner } from './eth/provider';
+import { getProvider, getSigner, startHealthChecks } from './eth/provider';
 import { startMonitor, stopMonitor } from './monitor/monitor';
 import { startOrderbookListener } from './listener/orderbook';
 import { startMockFeed } from './listener/mockFeed';
+import { ethers } from 'ethers';
 
 // Mock contract addresses (in local mode, these are deployed by scripts/deploy-mocks.ts)
-const SETTLEMENT_ADDRESS = '0x9fE46736679d2D9a65F0991C02F50800747f9C5d'; // Placeholder
+// IMPORTANT: Deploy contracts first with: npx hardhat run scripts/deploy-mocks.ts --network localhost
+// Then update this address with the deployed settlement contract address
+const SETTLEMENT_ADDRESS = process.env.SETTLEMENT_ADDRESS || '0x9fE46736679d2D9a65F0991C02F50800747f9C5d'; // Will be overridden if env var set
 
 /**
  * Main function.
@@ -32,7 +35,8 @@ async function main(): Promise<void> {
 
     // Initialize Ethereum provider
     logger.info(`Initializing provider with RPC: ${config.RPC_URLS[0]}`);
-    getProvider();
+    const provider = getProvider();
+    startHealthChecks(provider as ethers.FallbackProvider, 30000);
     logger.info('Provider initialized');
 
     // Initialize signer

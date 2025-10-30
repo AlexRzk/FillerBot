@@ -2,14 +2,14 @@
  * src/models/intent.ts
  * PURPOSE: Define the Intent data model and validation helpers.
  * An intent represents a user's desire to swap tokens atomically.
- * 
+ *
  * TODO: Add comprehensive validation using zod schema
  * TODO: Add serialization/deserialization helpers for DB and JSON
  */
 
 /**
  * Intent: Represents a user's token swap intention.
- * 
+ *
  * Fields:
  * - id: Unique identifier for the intent (e.g., hash or UUID)
  * - maker: Address that initiated the intent (will receive buyToken)
@@ -20,6 +20,7 @@
  * - deadline: Block timestamp by which the intent must be fulfilled
  * - status: Current state (pending, matched, executing, executed, failed, cancelled)
  * - createdAt: Unix timestamp when intent was created
+ * - signature: (Optional) The EIP-712 signature for the order
  */
 export interface Intent {
   id: string;
@@ -31,13 +32,13 @@ export interface Intent {
   deadline: number;
   status: 'pending' | 'matched' | 'executing' | 'executed' | 'failed' | 'cancelled';
   createdAt: number;
-  signature?: string; // UniswapX order signature
+  signature?: string; // Added to match the orderbook listener
 }
 
 /**
  * Validate an intent for basic correctness.
  * Returns true if valid, throws error if invalid.
- * 
+ *
  * TODO: Expand validation to include:
  * - Token contract existence check
  * - Maker balance verification (if on-chain)

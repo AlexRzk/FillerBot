@@ -5,9 +5,9 @@
 
 import { Intent } from '../models/intent';
 import logger from '../logger';
-import { ethers } from 'ethers';
 import { config } from '../config';
-import { startPendingOrdersListener, getOpenOrdersAsIntents, stopPendingOrdersListener } from './pendingOrdersListener';
+import { getOpenOrdersAsIntents } from './pendingOrdersListener';
+import { convertCowOrderToIntent } from '../utils/cow';
 
 const BASE_MAINNET_RPC = config.RPC_URLS[0];
 
@@ -28,9 +28,30 @@ function getWebSocketUrl(httpRpcUrl: string): string {
 
 const BASE_MAINNET_WS = getWebSocketUrl(BASE_MAINNET_RPC);
 
-export async function fetchRealIntents(): Promise<Intent[]> {
-  logger.debug('Fetching real intents...');
-  return [];
+export async function startCowListener(
+  callback: (intent: Intent) => void
+): Promise<() => void> {
+  const url = 'https://api.cow.fi/mainnet/api/v1/orders';
+  
+  const fetchOrders = async () => {
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      const orders = (data as any).orders;
+      
+      for (const order of orders) {
+        const intent = convertCowOrderToIntent(order);
+        callback(intent);
+      }
+    } catch (error) {
+      logger.error(`[Feed] Error fetching CoW orders: ${error}`);
+    }
+  };
+
+  // Poll every 5 seconds
+  const intervalId = setInterval(fetchOrders, 5000);
+  
+  return () => clearInterval(intervalId);
 }
 
 export function startRealFeed(
@@ -41,27 +62,17 @@ export function startRealFeed(
   logger.info(`[Feed] HTTP RPC: ${BASE_MAINNET_RPC}`);
   logger.info(`[Feed] WebSocket RPC: ${BASE_MAINNET_WS} (for mempool monitoring)`);
 
-  const provider = new ethers.JsonRpcProvider(BASE_MAINNET_RPC);
+  let stopCowListener: (() => void) | null = null;
 
-  let stopPendingListener: (() => void) | null = null;
-
-  startPendingOrdersListener(
-    provider,
-    BASE_MAINNET_WS,
-    (newOrders: Intent[]) => {
-      if (newOrders.length > 0) {
-        logger.info(`[Feed] Real-time: Received ${newOrders.length} new pending orders from mempool`);
-        onIntents(newOrders);
-      }
-    }
-  )
+  startCowListener((intent: Intent) => {
+    onIntents([intent]);
+  })
     .then((stop) => {
-      stopPendingListener = stop;
-      logger.info('[Feed] ✅ Mempool listener started successfully');
+      stopCowListener = stop;
+      logger.info('[Feed] ✅ CoW Protocol listener started successfully');
     })
     .catch((error: any) => {
-      logger.error(`[Feed] ❌ Failed to start pending orders listener: ${error.message}`);
-      logger.error('[Feed] Make sure WebSocket RPC is accessible: ' + BASE_MAINNET_WS);
+      logger.error(`[Feed] ❌ Failed to start CoW Protocol listener: ${error.message}`);
     });
 
   const interval = setInterval(async () => {
@@ -78,9 +89,8 @@ export function startRealFeed(
 
   return () => {
     clearInterval(interval);
-    if (stopPendingListener) {
-      stopPendingListener();
-      stopPendingOrdersListener();
+    if (stopCowListener) {
+      stopCowListener();
     }
     logger.info('[Feed] Real intent feed stopped');
   };

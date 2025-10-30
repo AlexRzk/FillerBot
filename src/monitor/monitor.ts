@@ -115,9 +115,9 @@ export async function startMonitor(
       logger.info(`✅ Found ${candidates.length} candidate pairs for matching`);
 
       // Build plans
-      const plans = candidates.slice(0, 5).map((candidate) =>
-        buildPlan(candidate, settlementAddress) // Assumes buildPlan is adapted for this
-      );
+      const plans = await Promise.all(candidates.slice(0, 5).map(async (candidate) =>
+        buildPlan(candidate, settlementAddress, candidate.ammAddress) // Assumes buildPlan is adapted for this
+      ));
       logger.debug(`Built ${plans.length} plans`);
 
       // Validate plans (basic)

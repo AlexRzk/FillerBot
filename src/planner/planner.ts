@@ -8,6 +8,9 @@ import { Intent } from '../models/intent';
 import { Candidate } from '../matcher/matcher';
 import logger from '../logger';
 import { getTokenDecimals as getOracleDecimals } from '../utils/priceOracle';
+import { getGasPrice, getL1Fee, getProvider } from '../eth/provider';
+import { ethers } from 'ethers';
+import { MockAMM__factory } from '../../typechain-types';
 
 const TOKEN_DECIMALS: { [address: string]: number } = {
   '0x7f5c764cbc14f9669b88dc4c52a84e7cffbf05c0': 6,
@@ -86,55 +89,66 @@ export interface Plan {
   signatureB?: string;
 }
 
-export function buildPlan(
+export async function buildPlan(
   candidate: Candidate,
-  settlementAddress: string
-): Plan {
+  settlementAddress: string,
+  ammAddress: string,
+): Promise<Plan> {
   const { intentA, intentB } = candidate;
   const planId = `plan_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
   logger.info(`Building plan: ${planId} for intents ${intentA.id} <-> ${intentB.id}`);
 
+  const provider = getProvider();
+  const amm = MockAMM__factory.connect(ammAddress, provider);
+
+  const settlementInterface = new ethers.Interface([
+    'function settle(tuple(string id, address maker, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) intentA, tuple(string id, address maker, address sellToken, address buyToken, uint256 sellAmount, uint256 minBuyAmount, uint256 deadline) intentB)',
+  ]);
+
+  const calldata = settlementInterface.encodeFunctionData('settle', [intentA, intentB]);
+
   const steps: PlanStep[] = [
     {
       type: 'settle',
       target: settlementAddress,
-      data: '0x12345678', // settle selector (placeholder)
+      data: calldata,
       description: 'Execute atomic settlement of both intents',
     },
   ];
 
+  const [reserveA, reserveB] = await amm.getReserves();
+
+  const amountOutA = await amm.getAmountOut(intentA.sellToken, intentA.sellAmount, reserveA, reserveB);
+  const amountOutB = await amm.getAmountOut(intentB.sellToken, intentB.sellAmount, reserveB, reserveA);
+
   const expectedOutputs = {
-    amountForA: intentB.sellAmount,
-    amountForB: intentA.sellAmount,
+    amountForA: amountOutB,
+    amountForB: amountOutA,
   };
 
-  const surplusAmountA = expectedOutputs.amountForA > intentA.minBuyAmount 
-    ? expectedOutputs.amountForA - intentA.minBuyAmount 
-    : 0n;
-  const surplusAmountB = expectedOutputs.amountForB > intentB.minBuyAmount 
-    ? expectedOutputs.amountForB - intentB.minBuyAmount 
-    : 0n;
+  const surplusA = expectedOutputs.amountForA - intentA.minBuyAmount;
+  const surplusB = expectedOutputs.amountForB - intentB.minBuyAmount;
 
-  const surplusUsdA = convertToUsd(surplusAmountA, intentA.buyToken);
-  const surplusUsdB = convertToUsd(surplusAmountB, intentB.buyToken);
+  const surplusUsdA = convertToUsd(surplusA, intentA.buyToken);
+  const surplusUsdB = convertToUsd(surplusB, intentB.buyToken);
 
   const profitUsd = Math.min(surplusUsdA, surplusUsdB);
-  
+
   const ethPrice = getTokenPrice('0x4200000000000000000000000000000000000006');
-  const profitInEthUnits = (profitUsd / ethPrice) * 1e18;
-  let profitBeforeGas = BigInt(Math.floor(profitInEthUnits));
-  
-  if (profitBeforeGas < 1000000n) {
-    profitBeforeGas = 1000000n;
-  }
+  const profitInEthUnits = profitUsd / ethPrice;
+  const profitBeforeGas = BigInt(Math.floor(profitInEthUnits * 1e18));
 
-  const estimatedGas = 200000n;
-  const estimatedGasCost = estimatedGas * 50000000000n;
+  const estimatedGas = await provider.estimateGas({
+    to: settlementAddress,
+    data: calldata,
+  });
 
-  const expectedProfit = profitBeforeGas > estimatedGasCost 
-    ? profitBeforeGas - estimatedGasCost 
-    : 0n;
+  const { maxFeePerGas } = await getGasPrice();
+  const l1Fee = await getL1Fee(calldata);
+  const estimatedGasCost = estimatedGas * maxFeePerGas + l1Fee;
+
+  const expectedProfit = profitBeforeGas - estimatedGasCost;
 
   return {
     id: planId,

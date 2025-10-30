@@ -107,22 +107,8 @@ contract MockAMM {
      * Calculate output amount for a swap using constant product formula.
      * amountOut = (amountIn * reserveOut) / (reserveIn + amountIn)
      */
-    function getAmountOut(address tokenIn, uint256 amountIn) public view returns (uint256 amountOut) {
+    function getAmountOut(address tokenIn, uint256 amountIn, uint256 reserveIn, uint256 reserveOut) public pure returns (uint256 amountOut) {
         require(amountIn > 0, "Amount in must be positive");
-
-        uint256 reserveIn;
-        uint256 reserveOut;
-
-        if (tokenIn == address(tokenA)) {
-            reserveIn = reserveA;
-            reserveOut = reserveB;
-        } else if (tokenIn == address(tokenB)) {
-            reserveIn = reserveB;
-            reserveOut = reserveA;
-        } else {
-            revert("Invalid token");
-        }
-
         require(reserveIn > 0 && reserveOut > 0, "Insufficient liquidity");
 
         uint256 numerator = amountIn * reserveOut;
@@ -139,7 +125,7 @@ contract MockAMM {
 
         // Determine token pair and transfers
         if (tokenIn == address(tokenA)) {
-            amountOut = getAmountOut(tokenIn, amountIn);
+            amountOut = getAmountOut(tokenIn, amountIn, reserveA, reserveB);
             require(amountOut >= minAmountOut, "Insufficient output amount");
 
             require(tokenA.transferFrom(msg.sender, address(this), amountIn), "TokenA transfer failed");
@@ -148,7 +134,7 @@ contract MockAMM {
             reserveA += amountIn;
             reserveB -= amountOut;
         } else if (tokenIn == address(tokenB)) {
-            amountOut = getAmountOut(tokenIn, amountIn);
+            amountOut = getAmountOut(tokenIn, amountIn, reserveB, reserveA);
             require(amountOut >= minAmountOut, "Insufficient output amount");
 
             require(tokenB.transferFrom(msg.sender, address(this), amountIn), "TokenB transfer failed");

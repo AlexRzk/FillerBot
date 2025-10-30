@@ -5,7 +5,6 @@
  */
 
 import * as dotenv from 'dotenv';
-import * as path from 'path';
 import { z } from 'zod';
 
 dotenv.config();
@@ -40,28 +39,28 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
-function loadConfig(): Config {
-  // Handle RPC_URL vs RPC_URLS naming mismatch
-  if (process.env.RPC_URL && !process.env.RPC_URLS) {
-    process.env.RPC_URLS = process.env.RPC_URL;
-  }
 
-  const parsed = configSchema.parse(process.env);
 
-  if (parsed.MODE === 'live' && !parsed.ENABLE_LIVE) {
-    throw new Error('FATAL: Mode is "live" but ENABLE_LIVE is not true.');
-  }
+import * as fs from 'fs';
 
-  if (!parsed.PRIVATE_KEY) {
-    throw new Error('FATAL: PRIVATE_KEY environment variable is not set');
-  }
+const amms = JSON.parse(fs.readFileSync('./amms.json', 'utf-8'));
 
-  const dbDir = path.dirname(parsed.DATABASE_PATH);
-  if (!dbDir.includes('.') && dbDir !== '') {
-    // TODO: Create directory if needed using fs.mkdirSync
-  }
-
-  return parsed;
-}
-
-export const config = loadConfig();
+export const config = {
+  MODE: process.env.MODE || 'local',
+  RPC_URLS: (process.env.RPC_URLS || 'http://127.0.0.1:8545').split(','),
+  PRIVATE_KEY: process.env.PRIVATE_KEY || '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+  ENABLE_LIVE: process.env.ENABLE_LIVE === 'true',
+  DATABASE_PATH: process.env.DATABASE_PATH || './data/bot.db',
+  MOCK_FEED_FILE: process.env.MOCK_FEED_FILE || './seeds/mock_intents.json',
+  MIN_PROFIT_THRESHOLD: BigInt(process.env.MIN_PROFIT_THRESHOLD || '1000000000000000'),
+  CHAIN_ID: parseInt(process.env.CHAIN_ID || '31337', 10),
+  SUBMITTER_RETRY_COUNT: parseInt(process.env.SUBMITTER_RETRY_COUNT || '3', 10),
+  SUBMITTER_RETRY_DELAY_MS: parseInt(process.env.SUBMITTER_RETRY_DELAY_MS || '1000', 10),
+  INTENT_FEED_SOURCE: process.env.INTENT_FEED_SOURCE || 'mock',
+  ORDERBOOK_API_KEY: process.env.ORDERBOOK_API_KEY,
+  ORDERBOOK_WS_URL: process.env.ORDERBOOK_WS_URL,
+  UNISWAPX_WEBHOOK_PORT: parseInt(process.env.UNISWAPX_WEBHOOK_PORT || '8080', 10),
+  MONITOR_INTERVAL_MS: parseInt(process.env.MONITOR_INTERVAL_MS || '5000', 10),
+  LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+  amms,
+};

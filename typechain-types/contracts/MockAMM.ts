@@ -49,7 +49,7 @@ export interface MockAMMInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "getAmountOut",
-    values: [AddressLike, BigNumberish]
+    values: [AddressLike, BigNumberish, BigNumberish, BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "getReserves",
@@ -229,7 +229,12 @@ export interface MockAMM extends BaseContract {
   >;
 
   getAmountOut: TypedContractMethod<
-    [tokenIn: AddressLike, amountIn: BigNumberish],
+    [
+      tokenIn: AddressLike,
+      amountIn: BigNumberish,
+      reserveIn: BigNumberish,
+      reserveOut: BigNumberish
+    ],
     [bigint],
     "view"
   >;
@@ -278,7 +283,12 @@ export interface MockAMM extends BaseContract {
   getFunction(
     nameOrSignature: "getAmountOut"
   ): TypedContractMethod<
-    [tokenIn: AddressLike, amountIn: BigNumberish],
+    [
+      tokenIn: AddressLike,
+      amountIn: BigNumberish,
+      reserveIn: BigNumberish,
+      reserveOut: BigNumberish
+    ],
     [bigint],
     "view"
   >;

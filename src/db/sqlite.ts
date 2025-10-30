@@ -76,26 +76,28 @@ export function saveIntent(intent: Intent): void {
   const database = getDatabase();
   const now = Math.floor(Date.now() / 1000);
 
-  try {
-    const stmt = database.prepare(`
-      INSERT OR REPLACE INTO intents (
-        id, maker, sellToken, buyToken, sellAmount, minBuyAmount,
-        deadline, status, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+  const stmt = database.prepare(`
+    INSERT OR REPLACE INTO intents (
+      id, maker, sellToken, buyToken, sellAmount, minBuyAmount,
+      deadline, status, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
-    stmt.run(
-      intent.id,
-      intent.maker,
-      intent.sellToken,
-      intent.buyToken,
-      intent.sellAmount.toString(),
-      intent.minBuyAmount.toString(),
-      intent.deadline,
-      intent.status,
-      intent.createdAt,
-      now
-    );
+  try {
+    database.transaction(() => {
+      stmt.run(
+        intent.id,
+        intent.maker,
+        intent.sellToken,
+        intent.buyToken,
+        intent.sellAmount.toString(),
+        intent.minBuyAmount.toString(),
+        intent.deadline,
+        intent.status,
+        intent.createdAt,
+        now
+      );
+    })();
 
     logger.debug(`Saved intent: ${intent.id}`);
   } catch (error) {
@@ -132,25 +134,27 @@ export function saveRun(run: any): void {
   const database = getDatabase();
   const now = Math.floor(Date.now() / 1000);
 
-  try {
-    const stmt = database.prepare(`
-      INSERT OR REPLACE INTO runs (
-        id, intentIds, status, expectedProfit, actualProfit,
-        gasUsed, txHash, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+  const stmt = database.prepare(`
+    INSERT OR REPLACE INTO runs (
+      id, intentIds, status, expectedProfit, actualProfit,
+      gasUsed, txHash, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
-    stmt.run(
-      run.id,
-      JSON.stringify(run.intentIds),
-      run.status,
-      run.expectedProfit?.toString() || null,
-      run.actualProfit?.toString() || null,
-      run.gasUsed?.toString() || null,
-      run.txHash || null,
-      run.createdAt,
-      now
-    );
+  try {
+    database.transaction(() => {
+      stmt.run(
+        run.id,
+        JSON.stringify(run.intentIds),
+        run.status,
+        run.expectedProfit?.toString() || null,
+        run.actualProfit?.toString() || null,
+        run.gasUsed?.toString() || null,
+        run.txHash || null,
+        run.createdAt,
+        now
+      );
+    })();
 
     logger.debug(`Saved run: ${run.id}`);
   } catch (error) {

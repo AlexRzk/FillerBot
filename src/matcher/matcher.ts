@@ -15,8 +15,10 @@
  * TODO: Add gas cost consideration in matching
  */
 
-import { Intent, areIntentsComplementary } from '../models/intent';
+import { Intent } from '../models/intent';
 import logger from '../logger';
+
+import { config } from '../config';
 
 /**
  * Candidate pair ready for simulation and settlement.
@@ -33,6 +35,9 @@ export interface Candidate {
 
   // Scoring metric for ranking candidates
   score: number;
+
+  // AMM address for this pair
+  ammAddress: string;
 }
 
 /**
@@ -44,56 +49,62 @@ export interface Candidate {
  */
 export function findCandidates(intents: Intent[]): Candidate[] {
   const candidates: Candidate[] = [];
+  const intentMap: Map<string, Intent[]> = new Map();
 
-  // TODO: Optimize matching algorithm for large intent lists (currently O(n^2))
-  // Consider using a hash map indexed by token pairs for faster lookup
+  // Populate the hash map
+  for (const intent of intents) {
+    if (intent.status !== 'pending') {
+      continue;
+    }
+    const key = `${intent.sellToken}/${intent.buyToken}`;
+    if (!intentMap.has(key)) {
+      intentMap.set(key, []);
+    }
+    intentMap.get(key)!.push(intent);
+  }
 
-  for (let i = 0; i < intents.length; i++) {
-    for (let j = i + 1; j < intents.length; j++) {
-      const intentA = intents[i];
-      const intentB = intents[j];
+  // Find complementary intents
+  for (const [key, intentsA] of intentMap.entries()) {
+    const [sellToken, buyToken] = key.split('/');
+    const complementaryKey = `${buyToken}/${sellToken}`;
 
-      // Check if intents are complementary
-      if (!areIntentsComplementary(intentA, intentB)) {
+    if (intentMap.has(complementaryKey)) {
+      const intentsB = intentMap.get(complementaryKey)!;
+      const ammAddress = config.amms[key] || config.amms[complementaryKey];
+
+      if (!ammAddress) {
         continue;
       }
 
-      // Both intents want to execute (not matched or executing)
-      if (intentA.status !== 'pending' || intentB.status !== 'pending') {
-        continue;
+      for (const intentA of intentsA) {
+        for (const intentB of intentsB) {
+          // Check deadline: both intents must have sufficient time
+          const now = Math.floor(Date.now() / 1000);
+          if (intentA.deadline <= now || intentB.deadline <= now) {
+            logger.debug('Skipping intents with expired deadlines');
+            continue;
+          }
+
+          // Calculate overlap ratio
+          const overlapA = calculateOverlap(intentA.sellAmount, intentB.minBuyAmount);
+          const overlapB = calculateOverlap(intentB.sellAmount, intentA.minBuyAmount);
+          const overlapRatio = Math.min(overlapA, overlapB);
+
+          const score = computeScore(intentA, intentB, overlapRatio);
+
+          candidates.push({
+            intentA,
+            intentB,
+            overlapRatio,
+            score,
+            ammAddress,
+          });
+
+          logger.debug(
+            `Found candidate pair: ${intentA.id} <-> ${intentB.id} (overlap: ${overlapRatio.toFixed(2)}, score: ${score.toFixed(2)})`
+          );
+        }
       }
-
-      // Check deadline: both intents must have sufficient time
-      const now = Math.floor(Date.now() / 1000);
-      if (intentA.deadline <= now || intentB.deadline <= now) {
-        logger.debug('Skipping intents with expired deadlines');
-        continue;
-      }
-
-      // Calculate overlap ratio
-      // This is a simple metric: how much of each intent's amounts align
-      const overlapA = calculateOverlap(intentA.sellAmount, intentB.minBuyAmount);
-      const overlapB = calculateOverlap(intentB.sellAmount, intentA.minBuyAmount);
-      const overlapRatio = Math.min(overlapA, overlapB);
-
-      // TODO: Implement sophisticated scoring
-      // Factors to consider:
-      // - Price slippage
-      // - Gas cost vs profit
-      // - Intent priority/urgency (earlier deadline = higher score)
-      // - Maker reputation (if tracked)
-      const score = computeScore(intentA, intentB, overlapRatio);
-
-      candidates.push({
-        intentA,
-        intentB,
-        overlapRatio,
-        score,
-      });
-
-      logger.debug(
-        `Found candidate pair: ${intentA.id} <-> ${intentB.id} (overlap: ${overlapRatio.toFixed(2)}, score: ${score.toFixed(2)})`
-      );
     }
   }
 

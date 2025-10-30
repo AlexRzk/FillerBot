@@ -103,3 +103,18 @@ export async function getL1Fee(txData: string): Promise<bigint> {
     throw error;
   }
 }
+
+export function startHealthChecks(provider: ethers.FallbackProvider, interval: number): () => void {
+  const check = async () => {
+    try {
+      const blockNumber = await provider.getBlockNumber();
+      logger.info(`Health check passed. Current block number: ${blockNumber}`);
+    } catch (error) {
+      logger.error(`Health check failed: ${error}`);
+    }
+  };
+
+  const intervalId = setInterval(check, interval);
+
+  return () => clearInterval(intervalId);
+}
