@@ -1,30 +1,29 @@
 /**
  * src/monitor/monitor.ts
  * PURPOSE: Main orchestration loop with integrated safety systems.
- * ---
- * * CRITICAL FIX: This file has been rewritten to align with the
- * aggregator/planner architecture. It no longer uses the 'matcher'
- * to find pairs, but instead tries to fill *each* pending intent
- * individually.
+ * REWRITTEN: To use the single-intent aggregator flow (not pair-matching).
+ * 
+ * CORRECTED FLOW:
+ * For each pending intent:
+ *   1. buildPlan(intent) → Get aggregator quote
+ *   2. simulatePlan(plan) → Simulate plan.quote.txData via provider.call()
+ *   3. validateTrade(plan.intent, simResult) → USD-based safety checks
+ *   4. submitPlan(plan, simResult) → Submit to blockchain (standard or Flashbots)
  */
 
 import { saveIntent, getPendingIntents, saveRun } from '../db/sqlite';
 import { startMockFeed } from '../listener/mockFeed';
-// Import the real feed listeners
-import { startPendingOrdersListener, getOpenOrdersAsIntents, stopPendingOrdersListener } from '../listener/pendingOrdersListener';
-// import { startUniswapXListener } from '../listener/uniswapXFeed'; // Assuming you might have this
+import { startPendingOrdersListener } from '../listener/pendingOrdersListener';
 import { buildPlan } from '../planner/planner';
-import { isProfitable, simulatePlan } from '../simulator/simulator';
+import { simulatePlan } from '../simulator/simulator';
 import { submitPlan } from '../submitter/submitter';
-import { getGasPrice, getProvider } from '../eth/provider';
-import { formatAmount } from '../utils/eth';
+import { getProvider } from '../eth/provider';
 import { config } from '../config';
 import logger from '../logger';
 import { PriceOracleService } from '../services/priceOracleService';
 import { validateTrade, logRejectedTrade } from '../utils/tradeValidator';
 import { circuitBreaker } from '../utils/circuitBreaker';
 import { SAFETY_CONFIG } from '../config/safety';
-import { Intent } from '../models/intent';
 
 interface MonitorState {
   isRunning: boolean;
@@ -40,52 +39,46 @@ const state: MonitorState = {
 let priceOracleService: PriceOracleService | null = null;
 let stopFeedListener: (() => void) | null = null;
 
-export async function startMonitor(
-  settlementAddress: string
-): Promise<void> {
+/**
+ * Start the monitor loop with the corrected single-intent aggregator flow.
+ */
+export async function startMonitor(_settlementAddress: string): Promise<void> {
   if (state.isRunning) {
     logger.warn('Monitor already running');
     return;
   }
 
   state.isRunning = true;
-  logger.info('Monitor started');
+  logger.info('✅ Monitor started');
   const provider = getProvider();
 
+  // Start Price Oracle (if in real mode)
+  if (config.INTENT_FEED_SOURCE === 'real') {
+    priceOracleService = new PriceOracleService(provider);
+    priceOracleService.start(60000);
+    logger.info('[safety] Price oracle service started');
+    logger.info(`[safety] Circuit breaker: ${circuitBreaker.isPaused() ? '🛑 PAUSED' : '✅ ACTIVE'}`);
+    logger.info(`[safety] Max position: $${SAFETY_CONFIG.MAX_POSITION_SIZE_USD}`);
+    logger.info(`[safety] Min profit: $${SAFETY_CONFIG.MIN_PROFIT_USD}`);
+  } else {
+    logger.info('Using MOCK intent feed (price oracle disabled in mock mode)');
+  }
+
+  // Start Intent Feed
   if (config.INTENT_FEED_SOURCE === 'real') {
     if (!config.WS_RPC_URL) {
-      throw new Error('Real feed requires WS_RPC_URL (WebSocket RPC)');
+      throw new Error('Real feed requires WS_RPC_URL (WebSocket RPC URL)');
     }
-    
-    // 1. Start Price Oracle
-    priceOracleService = new PriceOracleService(provider);
-    priceOracleService.start(60000); // Update prices every minute
-    logger.info('[safety] Price oracle service started');
-
-    // 2. Log Safety Config
-    logger.info(`[safety] Circuit breaker: ${circuitBreaker.isPaused() ? '🛑 PAUSED' : '✅ ACTIVE'}`);
-    logger.info(`[safety] Max position size: $${SAFETY_CONFIG.MAX_POSITION_SIZE_USD}`);
-    logger.info(`[safety] Min profit: $${SAFETY_CONFIG.MIN_PROFIT_USD}`);
-
-    // 3. Start REAL Feed
-    logger.info('Using REAL intent feed from UniswapX mempool listener.');
-    // CORRECTED: Use startPendingOrdersListener
-    stopFeedListener = await startPendingOrdersListener(
-      provider,
-      config.WS_RPC_URL,
-      (intents: Intent[]) => {
-        logger.info(`[feed] Received ${intents.length} new intents from mempool`);
-        intents.forEach(saveIntent);
-      }
-    );
-
+    logger.info('Starting REAL mempool listener...');
+    stopFeedListener = await startPendingOrdersListener(provider, config.WS_RPC_URL, (intents) => {
+      intents.forEach(saveIntent);
+    });
   } else {
-    logger.info('Using MOCK intent feed from local JSON file.');
-    logger.info('[safety] Price oracle service is DISABLED in mock mode.');
+    logger.info('Starting MOCK intent feed...');
     stopFeedListener = startMockFeed(saveIntent, config.MONITOR_INTERVAL_MS);
   }
 
-  // Monitor loop
+  // Main Monitor Loop
   const loop = async () => {
     if (!state.isRunning) {
       logger.info('Monitor loop stopped');
@@ -94,123 +87,95 @@ export async function startMonitor(
 
     try {
       state.cycleCount++;
-      logger.debug(`Monitor cycle #${state.cycleCount}`);
-
-      // CORRECTED: Get intents from the correct listener source
-      const pendingIntents = (config.INTENT_FEED_SOURCE === 'real')
-        ? getOpenOrdersAsIntents()
-        : getPendingIntents();
+      const pendingIntents = getPendingIntents();
 
       if (pendingIntents.length === 0) {
-        logger.debug('No pending intents, waiting for next cycle...');
+        logger.debug('[monitor] No pending intents');
         setTimeout(loop, config.MONITOR_INTERVAL_MS);
         return;
       }
+
       logger.info(`📊 Cycle #${state.cycleCount}: Analyzing ${pendingIntents.length} pending intents`);
 
-      // ---
-      // CORRECTED LOGIC: Iterate single intents, not pairs
-      // ---
-      const gasPrice = await getGasPrice();
       let submitted = false;
-
       for (const intent of pendingIntents) {
-        if (submitted) break; // Only submit one trade per cycle
+        if (submitted) break;
         if (intent.status !== 'pending') continue;
 
         try {
-          // 1. Build Plan
-          logger.debug(`[planner] Building plan for intent: ${intent.id}`);
+          logger.debug(`[monitor] Processing intent: ${intent.id}`);
+
+          // 1. Build Plan (get aggregator quote)
           const plan = await buildPlan(intent);
+          logger.info(`[monitor] Plan built: ${plan.id}, profit_token=${plan.expectedProfit.toString()}`);
 
-          // 2. Simulate Plan
-          logger.debug(`[simulator] Simulating plan: ${plan.id}`);
-          // NOTE: This simulation is still incomplete (see "Remaining Issues")
-          const simulation = await simulatePlan(plan, settlementAddress); 
+          // 2. Simulate Plan (staticCall the aggregator's txData)
+          const simResult = await simulatePlan(plan);
 
-          if (!simulation.success) {
-            logger.warn(`[simulator] ❌ Simulation FAILED for plan ${plan.id}: ${simulation.error}`);
-            continue;
-          }
-          logger.info(`[simulator] ✅ Simulation SUCCEEDED for plan ${plan.id}`);
-
-          // 3. Check Profitability
-          if (!isProfitable(simulation, gasPrice, config.MIN_PROFIT_THRESHOLD)) {
-            logger.warn(`[Monitor] Plan ${plan.id} is not profitable after gas. Net profit < ${config.MIN_PROFIT_THRESHOLD} wei.`);
+          if (!simResult.success) {
+            logger.warn(`[monitor] Simulation FAILED: ${simResult.error}`);
+            intent.status = 'failed';
+            saveIntent(intent);
             continue;
           }
 
-          // 4. Final Safety Validation
+          logger.info(`[monitor] ✅ Simulation passed, gas=${simResult.gasEstimate.toString()}`);
+
+          // 3. Validate Trade (USD-based checks + safety limits)
           if (config.INTENT_FEED_SOURCE === 'real') {
-              if (circuitBreaker.isPaused()) {
-                logger.warn(`[safety] ❌ Trade blocked: Circuit breaker is active - ${circuitBreaker.getState().reason}`);
-                break; 
-              }
-              logger.info(`[safety] Validating trade against safety limits for plan ${plan.id}...`);
-              const validation = await validateTrade(plan.intent, simulation, provider);
-              
-              if (!validation.isValid) {
-                logger.warn(`[safety] ❌ Plan ${plan.id} rejected: ${validation.reason}`);
-                logRejectedTrade(plan.intent, validation.reason || 'Unknown');
-                circuitBreaker.recordTrade(0, false, validation.reason);
-                continue; 
-              }
-              logger.info(`[safety] ✅ Plan ${plan.id} validation passed`);
+            if (circuitBreaker.isPaused()) {
+              logger.warn(`[safety] ❌ Circuit breaker active: ${circuitBreaker.getState().reason}`);
+              break;
+            }
+
+            const validation = await validateTrade(intent, simResult, provider);
+
+            if (!validation.isValid) {
+              logger.warn(`[safety] ❌ Trade rejected: ${validation.reason}`);
+              logRejectedTrade(intent, validation.reason || 'Unknown');
+              circuitBreaker.recordTrade(0, false, validation.reason);
+              continue;
+            }
+
+            logger.info(`[safety] ✅ Trade valid, profit_usd=$${validation.estimatedProfitUSD.toFixed(2)}`);
           }
-          
-          // 5. Submit
-          logger.info(`[safety] 🚀 Submitting trade for plan ${plan.id} (all safety checks passed)`);
-          
-          // Pass plan and simulation result to submitPlan
-          const submissionResult = await submitPlan(plan, simulation);
+
+          // 4. Submit
+          logger.info(`[monitor] 🚀 Submitting plan ${plan.id}...`);
+          const submissionResult = await submitPlan(plan, simResult);
 
           if (submissionResult.success) {
-            logger.info(`✅ Plan submitted: ${plan.id}, tx: ${submissionResult.txHash}`);
-            logger.info(`💰 Gross Profit: (${formatAmount(simulation.expectedProfit, 18)} mock ETH)`);
+            logger.info(`✅ Plan submitted! TX: ${submissionResult.txHash || submissionResult.bundleHash}`);
 
-            if(config.INTENT_FEED_SOURCE === 'real') {
-              circuitBreaker.recordTrade(0, true);
-            }
-            
             saveRun({
               id: plan.id,
-              intentIds: [plan.intent.id], // Only one intent
+              intentIds: [intent.id],
               status: 'executed',
-              expectedProfit: simulation.expectedProfit,
-              actualProfit: simulation.expectedProfit, // Mock
-              gasUsed: simulation.gasEstimate,
-              txHash: submissionResult.txHash,
+              expectedProfit: plan.expectedProfit.toString(),
+              actualProfit: plan.expectedProfit.toString(),
+              gasUsed: simResult.gasEstimate.toString(),
+              txHash: submissionResult.txHash || submissionResult.bundleHash || 'pending',
               createdAt: Math.floor(Date.now() / 1000),
               updatedAt: Math.floor(Date.now() / 1000),
             });
 
-            plan.intent.status = 'executed';
-            saveIntent(plan.intent);
-            
-            submitted = true; // Stop processing this cycle
-            
+            intent.status = 'executed';
+            saveIntent(intent);
+            submitted = true;
           } else {
-            logger.error(`❌ Plan submission failed: ${submissionResult.error}`);
+            logger.error(`❌ Submission failed: ${submissionResult.error}`);
             state.lastError = submissionResult.error;
-            if(config.INTENT_FEED_SOURCE === 'real') {
-              circuitBreaker.recordTrade(0, false, submissionResult.error);
-            }
           }
-
         } catch (error: any) {
-          logger.error(`[Monitor] Error processing intent ${intent.id}: ${error.message}`);
-          intent.status = 'failed'; // Mark as failed to avoid re-processing
+          logger.error(`[monitor] Error: ${error.message}`);
+          intent.status = 'failed';
           saveIntent(intent);
         }
-      } 
-
-      if (!submitted) {
-        logger.debug('[Monitor] No profitable and valid plans were submitted this cycle.');
       }
 
       setTimeout(loop, config.MONITOR_INTERVAL_MS);
     } catch (error: any) {
-      logger.error(`Monitor cycle error: ${error.message}`);
+      logger.error(`[monitor] Cycle error: ${error.message}`);
       state.lastError = String(error);
       setTimeout(loop, config.MONITOR_INTERVAL_MS);
     }
@@ -219,6 +184,9 @@ export async function startMonitor(
   loop();
 }
 
+/**
+ * Stop the monitor loop.
+ */
 export function stopMonitor(): void {
   logger.info('Stopping monitor...');
   state.isRunning = false;
@@ -226,31 +194,17 @@ export function stopMonitor(): void {
   if (priceOracleService) {
     priceOracleService.stop();
     priceOracleService = null;
-    logger.info('[safety] Price oracle service stopped');
   }
-  
-  // CORRECTED: Stop the correct listener
+
   if (stopFeedListener) {
     stopFeedListener();
     stopFeedListener = null;
   }
-  
-  // Also explicitly stop the mempool listener just in case
-  stopPendingOrdersListener();
 
   const stats = circuitBreaker.getStats();
-  logger.info('[stats] Final Statistics:');
-  logger.info(`[stats] Total trades: ${stats.totalTrades}`);
-  logger.info(`[stats] Successful: ${stats.successfulTrades}, Failed: ${stats.failedTrades}`);
-  // ... (rest of stats)
+  logger.info('[stats] Total: ' + stats.totalTrades);
+  logger.info('[stats] Success: ' + stats.successfulTrades);
+  logger.info('[stats] Profit: $' + stats.totalProfitUSD.toFixed(2));
 
   logger.info('Monitor stopped');
-}
-
-export function getMonitorStatus() {
-  return {
-    running: state.isRunning,
-    cycleCount: state.cycleCount,
-    lastError: state.lastError,
-  };
 }
